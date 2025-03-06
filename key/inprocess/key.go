@@ -6,6 +6,9 @@
 package inprocess // import "upspin.io/key/inprocess"
 
 import (
+	"encoding/json"
+	"fmt"
+	"io"
 	"sync"
 
 	"upspin.io/errors"
@@ -20,11 +23,24 @@ func New() upspin.KeyServer {
 	}}
 }
 
+func NewRO(r io.Reader) (upspin.KeyServer, error) {
+	s := &server{db: &database{
+		users: make(map[upspin.UserName]*upspin.User),
+	},
+		readOnly: true,
+	}
+	if err := s.fill(r); err != nil {
+		return nil, err
+	}
+	return s, nil
+}
+
 // server maps user names to potential machines holding root of the user's tree.
 // There is one for each Dial call, but they all share the underlying database.
 // It implements the upspin.KeyServer interface.
 type server struct {
-	db *database
+	db       *database
+	readOnly bool
 }
 
 var _ upspin.KeyServer = (*server)(nil)
@@ -70,6 +86,9 @@ func dup(u *upspin.User) *upspin.User {
 // Put implements upspin.KeyServer.
 func (s *server) Put(u *upspin.User) error {
 	const op errors.Op = "key/inprocess.Put"
+	if s.readOnly {
+		return errors.E(op, errors.Invalid, u.Name, "this is a read-only keyserver")
+	}
 	if err := valid.User(u); err != nil {
 		return errors.E(op, err)
 	}
@@ -107,4 +126,36 @@ func (s *server) Dial(config upspin.Config, e upspin.Endpoint) (upspin.Service, 
 
 // Close implements upspin.server.
 func (s *server) Close() {
+}
+
+type UserData struct {
+	Name      string `json:"name"`
+	PublicKey string `json:"key"`
+}
+
+type KeyData struct {
+	Users []UserData `json:"users"`
+}
+
+func (s *server) fill(r io.Reader) error {
+	s.readOnly = false // Temporarily.
+	defer func() {
+		s.readOnly = true
+	}()
+
+	j := json.NewDecoder(r)
+	var k KeyData
+	if err := j.Decode(&k); err != nil {
+		return fmt.Errorf("could not decode user key data: %w", err)
+	}
+	for _, d := range k.Users {
+		u := &upspin.User{
+			Name:      upspin.UserName(d.Name),
+			PublicKey: upspin.PublicKey(d.PublicKey),
+		}
+		if err := s.Put(u); err != nil {
+			return fmt.Errorf("while filling readonly keyserver: %w", err)
+		}
+	}
+	return nil
 }
