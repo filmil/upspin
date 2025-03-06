@@ -177,7 +177,7 @@ var flags = map[string]*flagVar{
 			return ""
 		},
 	},
-	"kind":      strVar(&ServerKind, "kind", ServerKind, "server implementation `kind` (inprocess, server)"),
+	"kind":      strVar(&ServerKind, "kind", ServerKind, "server implementation `kind` (inprocess, server, local[keyserver only])"),
 	"letscache": strVar(&LetsEncryptCache, "letscache", defaultLetsEncryptCache, "Let's Encrypt cache `directory`"),
 	"log": &flagVar{
 		set: func(fs *flag.FlagSet) {
@@ -230,10 +230,11 @@ var flags = map[string]*flagVar{
 // The Server and Client variables contain useful default sets.
 //
 // Examples:
-// 	flags.Parse(flags.Client) // Register all client flags.
+//
+//	flags.Parse(flags.Client) // Register all client flags.
 //	flags.Parse(flags.Server, "cachedir") // Register all server flags plus cachedir.
-// 	flags.Parse(nil) // Register all flags.
-// 	flags.Parse(flags.None, "config", "endpoint") // Register only config and endpoint.
+//	flags.Parse(nil) // Register all flags.
+//	flags.Parse(flags.None, "config", "endpoint") // Register only config and endpoint.
 func Parse(defaultList []string, extras ...string) {
 	ParseArgsInto(flag.CommandLine, os.Args[1:], defaultList, extras...)
 }
@@ -273,9 +274,12 @@ func ParseArgsInto(fs *flag.FlagSet, args, defaultList []string, extras ...strin
 // Passing an unknown name triggers a panic.
 //
 // For example:
-// 	flags.Register("config", "endpoint") // Register Config and Endpoint.
+//
+//	flags.Register("config", "endpoint") // Register Config and Endpoint.
+//
 // or
-// 	flags.Register() // Register all flags.
+//
+//	flags.Register() // Register all flags.
 func Register(names ...string) {
 	RegisterInto(flag.CommandLine, names...)
 }
