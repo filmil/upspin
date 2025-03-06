@@ -41,6 +41,9 @@ const (
 	// (Although called remote, the service may be running on the same machine.)
 	// The Endpoint's NetAddr contains the HTTP address of the server.
 	Remote
+
+	// An endpoint that uses local data, and does not really dial out.
+	Local
 )
 
 // A Location identifies where a piece of data is stored and how to retrieve it.
@@ -774,7 +777,7 @@ type Client interface {
 	// not the link target.
 	SetTime(name PathName, t Time) error
 
-	// SetTimeSequenced sets the time in name's DirEntry. 
+	// SetTimeSequenced sets the time in name's DirEntry.
 	// SetTimeSequenced with SeqIgnore is the same as SetTime.
 	//
 	// A successful SetTimeSequenced returns an incomplete DirEntry (see the

@@ -46,11 +46,23 @@ func Main(setup func(upspin.KeyServer)) {
 
 	// Create a new key implementation.
 	var key upspin.KeyServer
+	var local bool
 	switch flags.ServerKind {
 	case "inprocess":
 		key = inprocess.New()
 	case "server":
 		key, err = server.New(flags.ServerConfig...)
+	case "local":
+		local = true
+		ep := string(cfg.KeyEndpoint().NetAddr)
+		r, err := os.Open(ep)
+		if err != nil {
+			log.Fatalf("Reading: %q: %v", ep, err)
+		}
+		key, err = inprocess.NewRO(r)
+		if err != nil {
+			log.Fatalf("Setting up KeyServer: %v", err)
+		}
 	default:
 		err = errors.Errorf("bad -kind %q", flags.ServerKind)
 	}
@@ -68,32 +80,36 @@ func Main(setup func(upspin.KeyServer)) {
 		http.Handle("/log", logHandler{logger: logger})
 	}
 
-	signupURL := "https://" + flags.NetAddr + "/signup"
-	f := cfg.Factotum()
-	if f == nil {
-		log.Fatal("keyserver: supplied config must include keys")
-	}
-	var mc *signup.MailConfig
-	if *mailConfigFile == "" {
-		log.Info.Printf("keyserver: WARNING: -mail_config not supplied; no emails will be sent, they will be logged instead")
-		mc = &signup.MailConfig{Mail: mail.Logger(log.Info)}
-	} else {
-		data, err := os.ReadFile(*mailConfigFile)
-		if err != nil {
-			log.Fatalf("keyserver: %v", err)
+	if !local {
+		signupURL := "https://" + flags.NetAddr + "/signup"
+		f := cfg.Factotum()
+		if f == nil {
+			log.Fatal("keyserver: supplied config must include keys")
 		}
-		mc, err = parseMailConfig(data)
-		if err != nil {
-			log.Fatalf("keyserver: %v", err)
+		var mc *signup.MailConfig
+		if *mailConfigFile == "" && !local {
+			log.Info.Printf("keyserver: WARNING: -mail_config not supplied; no emails will be sent, they will be logged instead")
+			mc = &signup.MailConfig{Mail: mail.Logger(log.Info)}
+		} else {
+			data, err := os.ReadFile(*mailConfigFile)
+			if err != nil {
+				log.Fatalf("keyserver: %v", err)
+			}
+			mc, err = parseMailConfig(data)
+			if err != nil {
+				log.Fatalf("keyserver: %v", err)
+			}
 		}
+		http.Handle("/signup", signup.NewHandler(signupURL, f, key, mc))
 	}
-	http.Handle("/signup", signup.NewHandler(signupURL, f, key, mc))
+
 }
 
 // parseMailConfig reads YAML data and returns a signup.MailConfig
-// 	apikey: SENDGRID_API_KEY
-// 	notify: notify-signups@email.com
-// 	from: sender@email.com
+//
+//	apikey: SENDGRID_API_KEY
+//	notify: notify-signups@email.com
+//	from: sender@email.com
 //	project: test
 func parseMailConfig(data []byte) (*signup.MailConfig, error) {
 	c := make(map[string]string)
