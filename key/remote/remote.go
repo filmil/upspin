@@ -83,11 +83,16 @@ func (r *remote) Endpoint() upspin.Endpoint {
 func (r *remote) Dial(config upspin.Config, e upspin.Endpoint) (upspin.Service, error) {
 	op := r.opf("Dial", "%q, %q", config.UserName(), e)
 
-	if e.Transport != upspin.Remote {
+	if e.Transport != upspin.Remote && e.Transport != upspin.LocalInsecure {
 		return nil, op.error(errors.Invalid, "unrecognized transport")
 	}
 
-	authClient, err := rpc.NewClient(config, e.NetAddr, rpc.Secure, upspin.Endpoint{})
+	l := rpc.Secure
+	if e.Transport == upspin.LocalInsecure {
+		l = rpc.NoSecurity
+	}
+
+	authClient, err := rpc.NewClient(config, e.NetAddr, l, upspin.Endpoint{})
 	if err != nil {
 		return nil, op.error(errors.IO, err)
 	}
