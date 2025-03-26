@@ -44,6 +44,9 @@ const (
 
 	// An endpoint that uses local data, and does not really dial out.
 	Local
+
+	// An endpoint served through insecure means.  Use only for localhost.
+	LocalInsecure
 )
 
 // A Location identifies where a piece of data is stored and how to retrieve it.
