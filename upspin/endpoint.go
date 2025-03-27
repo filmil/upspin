@@ -21,11 +21,6 @@ func ParseEndpoint(v string) (*Endpoint, error) {
 			return nil, fmt.Errorf("remote endpoint %q requires a netaddr", v)
 		}
 		return &Endpoint{Transport: Remote, NetAddr: NetAddr(elems[1])}, nil
-	case "localinsecure":
-		if len(elems) < 2 {
-			return nil, fmt.Errorf("remote endpoint %q requires a netaddr", v)
-		}
-		return &Endpoint{Transport: LocalInsecure, NetAddr: NetAddr(elems[1])}, nil
 	case "local":
 		if len(elems) < 2 {
 			return nil, fmt.Errorf("local endpoint %q requires a netaddr", v)

@@ -497,6 +497,8 @@ func (t Transport) String() string {
 		return "inprocess"
 	case Remote:
 		return "remote"
+	case Local:
+		return "local"
 	default:
 		return fmt.Sprintf("transport(%d)", int(t))
 	}
