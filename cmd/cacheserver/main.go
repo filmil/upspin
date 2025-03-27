@@ -9,10 +9,14 @@ import (
 	"fmt"
 	"os"
 
+	"upspin.io/bind"
 	"upspin.io/config"
 	"upspin.io/flags"
 	"upspin.io/log"
+	"upspin.io/upspin"
 	"upspin.io/version"
+
+	"upspin.io/key/inprocess"
 )
 
 const cmdName = "cacheserver"
@@ -30,6 +34,20 @@ func main() {
 	cfg, err := config.FromFile(flags.Config)
 	if err != nil {
 		log.Fatal(err)
+	}
+
+	// XXX: why is this needed?
+	if cfg.KeyEndpoint().Transport == upspin.Local {
+		f := string(cfg.KeyEndpoint().NetAddr)
+		o, err := os.Open(f)
+		if err != nil {
+			return
+		}
+		s, err := inprocess.NewRO(o)
+		if err != nil {
+			return
+		}
+		bind.RegisterKeyServer(upspin.Local, s)
 	}
 
 	// Set any flags contained in the config.

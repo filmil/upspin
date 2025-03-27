@@ -118,7 +118,7 @@ func (s *server) Endpoint() upspin.Endpoint {
 // but the NetAddr is ignored.
 func (s *server) Dial(config upspin.Config, e upspin.Endpoint) (upspin.Service, error) {
 	const op errors.Op = "key/inprocess.Dial"
-	if e.Transport != upspin.InProcess {
+	if e.Transport != upspin.InProcess && e.Transport != upspin.Local {
 		return nil, errors.E(op, errors.Invalid, "unrecognized transport")
 	}
 	return s, nil
@@ -129,12 +129,14 @@ func (s *server) Close() {
 }
 
 type UserData struct {
-	Name      string `json:"name"`
-	PublicKey string `json:"key"`
+	Name      string
+	PublicKey string
+	Dirs      []string
+	Stores    []string
 }
 
 type KeyData struct {
-	Users []UserData `json:"users"`
+	Users []upspin.User
 }
 
 func (s *server) fill(r io.Reader) error {
@@ -149,11 +151,7 @@ func (s *server) fill(r io.Reader) error {
 		return fmt.Errorf("could not decode user key data: %w", err)
 	}
 	for _, d := range k.Users {
-		u := &upspin.User{
-			Name:      upspin.UserName(d.Name),
-			PublicKey: upspin.PublicKey(d.PublicKey),
-		}
-		if err := s.Put(u); err != nil {
+		if err := s.Put(&d); err != nil {
 			return fmt.Errorf("while filling readonly keyserver: %w", err)
 		}
 	}
