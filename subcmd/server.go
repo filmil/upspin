@@ -24,6 +24,9 @@ type ServerConfig struct {
 
 	// StoreConfig specifies the configuration options for the StoreServer.
 	StoreConfig []string
+
+	// Optionally, set the host and port for the KeyServer for lookups.
+	KeyServer upspin.NetAddr
 }
 
 // ServerConfigFile specifies the file name of the JSON-encoded ServerConfig.
