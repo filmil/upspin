@@ -112,6 +112,13 @@ func initServer(mode initMode) (*subcmd.ServerConfig, upspin.Config, *perm.Perm,
 	cfg = config.SetDirEndpoint(cfg, ep)
 	cfg = config.SetStoreEndpoint(cfg, ep)
 
+	if "" != serverConfig.KeyServer {
+		cfg = config.SetKeyEndpoint(cfg, upspin.Endpoint{
+			Transport: upspin.Remote,
+			NetAddr:   serverConfig.KeyServer,
+		})
+	}
+
 	storeCfg := config.SetPacking(cfg, upspin.EEIntegrityPack)
 	dirCfg := config.SetPacking(cfg, upspin.EEPack)
 
