@@ -87,7 +87,8 @@ func (r *remote) Dial(config upspin.Config, e upspin.Endpoint) (upspin.Service, 
 		return nil, op.error(errors.Invalid, "unrecognized transport")
 	}
 
-	authClient, err := rpc.NewClient(config, e.NetAddr, rpc.Secure, upspin.Endpoint{})
+	l := rpc.Secure
+	authClient, err := rpc.NewClient(config, e.NetAddr, l, upspin.Endpoint{})
 	if err != nil {
 		return nil, op.error(errors.IO, err)
 	}
