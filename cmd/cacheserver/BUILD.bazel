@@ -10,9 +10,11 @@ go_library(
     importpath = "upspin.io/cmd/cacheserver",
     visibility = ["//visibility:private"],
     deps = [
+        "//bind",
         "//config",
         "//dir/dircache",
         "//flags",
+        "//key/inprocess",
         "//log",
         "//pack/ee",
         "//pack/eeintegrity",
