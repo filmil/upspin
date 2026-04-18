@@ -1,6 +1,9 @@
 # Upspin (maintained)
 
 [![Bazel Build and Test](https://github.com/filmil/upspin/actions/workflows/bazel.yml/badge.svg)](https://github.com/filmil/upspin/actions/workflows/bazel.yml)
+[![Tag and Release](https://github.com/filmil/upspin/actions/workflows/tag-and-release.yml/badge.svg)](https://github.com/filmil/upspin/actions/workflows/tag-and-release.yml)
+[![Publish to my Bazel registry](https://github.com/filmil/upspin/actions/workflows/publish.yml/badge.svg)](https://github.com/filmil/upspin/actions/workflows/publish.yml)
+[![Publish on Bazel Central Registry](https://github.com/filmil/upspin/actions/workflows/publish-bcr.yml/badge.svg)](https://github.com/filmil/upspin/actions/workflows/publish-bcr.yml)
 
 ---
 
