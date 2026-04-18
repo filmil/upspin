@@ -25,7 +25,8 @@ import (
 	_ "upspin.io/dir/unassigned"
 )
 
-var bindOnce sync.Once
+var bindDirOnce sync.Once
+var bindKeyOnce sync.Once
 
 // Init initializes the transports for the given configuration.
 // It is a no-op if passed a nil config or called more than once.
@@ -35,28 +36,28 @@ var bindOnce sync.Once
 // directory server and configures that server to talk to the specified store
 // server.
 func Init(cfg upspin.Config) {
-	if cfg == nil {
-		return
-	}
-	if cfg.DirEndpoint().Transport == upspin.InProcess {
-		bindOnce.Do(func() {
-			bind.RegisterDirServer(upspin.InProcess, inprocess.New(cfg))
-		})
-	}
-	if cfg.KeyEndpoint().Transport == upspin.Local {
-		f := string(cfg.KeyEndpoint().NetAddr)
-		o, err := os.Open(f)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "oops: %v", err)
-			return
-		}
-		bindOnce.Do(func() {
-			s, err := kinp.NewRO(o)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "oops2: %v", err)
-				return
-			}
-			bind.RegisterKeyServer(upspin.Local, s)
-		})
-	}
+        if cfg == nil {
+                return
+        }
+        if cfg.DirEndpoint().Transport == upspin.InProcess {
+                bindDirOnce.Do(func() {
+                        bind.RegisterDirServer(upspin.InProcess, inprocess.New(cfg))
+                })
+        }
+        if cfg.KeyEndpoint().Transport == upspin.Local {
+                f := string(cfg.KeyEndpoint().NetAddr)
+                o, err := os.Open(f)
+                if err != nil {
+                        fmt.Fprintf(os.Stderr, "oops: %v", err)
+                        return
+                }
+                bindKeyOnce.Do(func() {
+                        s, err := kinp.NewRO(o)
+                        if err != nil {
+                                fmt.Fprintf(os.Stderr, "oops2: %v", err)
+                                return
+                        }
+                        bind.RegisterKeyServer(upspin.Local, s)
+                })
+        }
 }
