@@ -2,3 +2,7 @@
 # Bazel
 bazel-*
 
+
+.gemini/*
+!.gemini/skills/
+!.gemini/config.json
