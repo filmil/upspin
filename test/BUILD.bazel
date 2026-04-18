@@ -14,12 +14,12 @@ go_test(
     ],
     args = ["-test.short"],
     data = [
-        "//key/testdata",
-        "//cmd/upspin",
         "//cmd/cacheserver",
         "//cmd/dirserver",
         "//cmd/keyserver",
         "//cmd/storeserver",
+        "//cmd/upspin",
+        "//key/testdata",
     ],
     deps = [
         "//access",

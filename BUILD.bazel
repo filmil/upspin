@@ -1,7 +1,10 @@
 load("@gazelle//:def.bzl", "gazelle")
 
 # gazelle:prefix upspin.io
-# gazelle:proto disable
+# gazelle:go_proto_compilers @rules_go//proto:go_proto
+# gazelle:go_grpc_compilers @rules_go//proto:go_proto
+# gazelle:resolve proto proto upspin.io/upspin/proto/upspin.proto //upspin/proto:proto_proto
+# gazelle:resolve proto go upspin.io/upspin/proto/upspin.proto //upspin/proto:proto_go_proto
 
 gazelle(name = "gazelle")
 
