@@ -12,7 +12,8 @@
     "github:filmil/upspin"
   ],
   "versions": [
-    "0.0.1"
+    "0.0.1",
+    "42.1.0"
   ],
   "yanked_versions": {}
 }
