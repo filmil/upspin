@@ -10,6 +10,7 @@ go_library(
         "//dir/inprocess",
         "//dir/remote",
         "//dir/unassigned",
+        "//key/inprocess",
         "//key/transports",
         "//store/transports",
         "//upspin",
