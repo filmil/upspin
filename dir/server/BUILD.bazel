@@ -1,0 +1,62 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "server",
+    srcs = [
+        "access.go",
+        "server.go",
+        "snapshot.go",
+        "userlock.go",
+    ],
+    importpath = "upspin.io/dir/server",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//access",
+        "//bind",
+        "//cache",
+        "//client/clientutil",
+        "//cloud/storage",
+        "//dir/server/serverlog",
+        "//dir/server/tree",
+        "//errors",
+        "//log",
+        "//metric",
+        "//pack",
+        "//path",
+        "//serverutil",
+        "//shutdown",
+        "//upspin",
+        "//user",
+        "//valid",
+    ],
+)
+
+go_test(
+    name = "server_test",
+    srcs = [
+        "all_test.go",
+        "bench_test.go",
+        "snapshot_test.go",
+    ],
+    data = ["//key/testdata"],
+    embed = [":server"],
+    deps = [
+        "//access",
+        "//bind",
+        "//cache",
+        "//config",
+        "//dir/server/serverlog",
+        "//errors",
+        "//factotum",
+        "//key/inprocess",
+        "//log",
+        "//pack",
+        "//pack/ee",
+        "//pack/eeintegrity",
+        "//pack/plain",
+        "//path",
+        "//store/inprocess",
+        "//test/testutil",
+        "//upspin",
+    ],
+)

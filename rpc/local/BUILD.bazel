@@ -1,0 +1,13 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "local",
+    srcs = [
+        "local.go",
+        "local_unix.go",
+        "local_windows.go",
+    ],
+    importpath = "upspin.io/rpc/local",
+    visibility = ["//visibility:public"],
+    deps = ["//config"],
+)

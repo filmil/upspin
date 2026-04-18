@@ -1,0 +1,34 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "signup",
+    srcs = ["signup.go"],
+    importpath = "upspin.io/serverutil/signup",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//cloud/mail",
+        "//config",
+        "//errors",
+        "//factotum",
+        "//log",
+        "//rpc",
+        "//serverutil",
+        "//upspin",
+        "//user",
+        "//valid",
+    ],
+)
+
+go_test(
+    name = "signup_test",
+    srcs = ["signup_test.go"],
+    data = ["//key/testdata"],
+    embed = [":signup"],
+    deps = [
+        "//config",
+        "//factotum",
+        "//key/inprocess",
+        "//test/testutil",
+        "//upspin",
+    ],
+)

@@ -1,0 +1,61 @@
+load("@rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
+
+go_library(
+    name = "cacheserver_lib",
+    srcs = [
+        "doc.go",
+        "main.go",
+        "serve.go",
+    ],
+    importpath = "upspin.io/cmd/cacheserver",
+    visibility = ["//visibility:private"],
+    deps = [
+        "//config",
+        "//dir/dircache",
+        "//flags",
+        "//log",
+        "//pack/ee",
+        "//pack/eeintegrity",
+        "//pack/plain",
+        "//rpc/dirserver",
+        "//rpc/local",
+        "//rpc/storeserver",
+        "//store/storecache",
+        "//transports",
+        "//upspin",
+        "//version",
+    ],
+)
+
+go_binary(
+    name = "cacheserver",
+    embed = [":cacheserver_lib"],
+    visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "cacheserver_test",
+    srcs = ["endtoend_test.go"],
+    data = [
+        "//key/testdata",
+        "//rpc/testdata:rpc_testdata",
+    ],
+    embed = [":cacheserver_lib"],
+    deps = [
+        "//bind",
+        "//client",
+        "//client/clientutil",
+        "//cloud/https",
+        "//config",
+        "//dir/inprocess",
+        "//factotum",
+        "//flags",
+        "//key/inprocess",
+        "//path",
+        "//rpc/dirserver",
+        "//rpc/storeserver",
+        "//store/inprocess",
+        "//test/testutil",
+        "//upspin",
+    ],
+)

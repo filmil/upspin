@@ -1,0 +1,17 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "internal",
+    srcs = [
+        "blocksum.go",
+        "checkloc.go",
+        "lazybuf.go",
+        "nextblock.go",
+    ],
+    importpath = "upspin.io/pack/internal",
+    visibility = ["//pack:__subpackages__"],
+    deps = [
+        "//errors",
+        "//upspin",
+    ],
+)

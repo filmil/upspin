@@ -1,0 +1,45 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "ee",
+    srcs = [
+        "create.go",
+        "ee.go",
+        "packdata.go",
+    ],
+    importpath = "upspin.io/pack/ee",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//bind",
+        "//errors",
+        "//factotum",
+        "//log",
+        "//pack",
+        "//pack/internal",
+        "//pack/packutil",
+        "//path",
+        "//upspin",
+        "@org_golang_x_crypto//hkdf",
+    ],
+)
+
+go_test(
+    name = "ee_test",
+    srcs = [
+        "ee_test.go",
+        "export_test.go",
+    ],
+    data = ["//key/testdata"],
+    embed = [":ee"],
+    deps = [
+        "//bind",
+        "//config",
+        "//errors",
+        "//factotum",
+        "//pack",
+        "//pack/internal/packtest",
+        "//test/testfixtures",
+        "//test/testutil",
+        "//upspin",
+    ],
+)

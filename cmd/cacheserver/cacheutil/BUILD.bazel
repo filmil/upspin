@@ -1,0 +1,16 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "cacheutil",
+    srcs = [
+        "detach_posix.go",
+        "start.go",
+    ],
+    importpath = "upspin.io/cmd/cacheserver/cacheutil",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//bind",
+        "//log",
+        "//upspin",
+    ],
+)

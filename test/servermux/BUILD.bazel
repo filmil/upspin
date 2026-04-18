@@ -1,0 +1,15 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "servermux",
+    srcs = ["mux.go"],
+    importpath = "upspin.io/test/servermux",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//dir/unassigned",
+        "//errors",
+        "//key/unassigned",
+        "//store/unassigned",
+        "//upspin",
+    ],
+)

@@ -1,0 +1,20 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "flags",
+    srcs = ["flags.go"],
+    importpath = "upspin.io/flags",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//config",
+        "//log",
+        "//upspin",
+    ],
+)
+
+go_test(
+    name = "flags_test",
+    srcs = ["flags_test.go"],
+    embed = [":flags"],
+    deps = ["//upspin"],
+)

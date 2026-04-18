@@ -1,0 +1,29 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "usercache",
+    srcs = ["cache.go"],
+    importpath = "upspin.io/key/usercache",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//cache",
+        "//errors",
+        "//upspin",
+    ],
+)
+
+go_test(
+    name = "usercache_test",
+    srcs = ["cache_test.go"],
+    data = ["//key/testdata"],
+    embed = [":usercache"],
+    deps = [
+        "//bind",
+        "//cache",
+        "//config",
+        "//errors",
+        "//factotum",
+        "//test/testutil",
+        "//upspin",
+    ],
+)

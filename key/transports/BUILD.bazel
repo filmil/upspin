@@ -1,0 +1,16 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "transports",
+    srcs = ["transports.go"],
+    importpath = "upspin.io/key/transports",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//bind",
+        "//key/inprocess",
+        "//key/remote",
+        "//key/unassigned",
+        "//key/usercache",
+        "//upspin",
+    ],
+)

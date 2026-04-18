@@ -1,0 +1,19 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "sendgrid",
+    srcs = ["sendgrid.go"],
+    importpath = "upspin.io/cloud/mail/sendgrid",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//cloud/mail",
+        "//errors",
+    ],
+)
+
+go_test(
+    name = "sendgrid_test",
+    srcs = ["all_test.go"],
+    embed = [":sendgrid"],
+    deps = ["//errors"],
+)

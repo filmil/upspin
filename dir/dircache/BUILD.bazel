@@ -1,0 +1,35 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "dircache",
+    srcs = [
+        "log.go",
+        "proxied.go",
+        "server.go",
+    ],
+    importpath = "upspin.io/dir/dircache",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//access",
+        "//bind",
+        "//cache",
+        "//client/clientutil",
+        "//errors",
+        "//log",
+        "//path",
+        "//upspin",
+        "//user",
+    ],
+)
+
+go_test(
+    name = "dircache_test",
+    srcs = ["log_test.go"],
+    embed = [":dircache"],
+    deps = [
+        "//config",
+        "//errors",
+        "//log",
+        "//upspin",
+    ],
+)

@@ -1,0 +1,45 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "tree",
+    srcs = [
+        "blocks.go",
+        "tree.go",
+        "watch.go",
+    ],
+    importpath = "upspin.io/dir/server/tree",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//bind",
+        "//client/clientutil",
+        "//dir/server/serverlog",
+        "//errors",
+        "//log",
+        "//pack",
+        "//path",
+        "//upspin",
+    ],
+)
+
+go_test(
+    name = "tree_test",
+    srcs = [
+        "all_test.go",
+        "watch_test.go",
+    ],
+    data = ["//key/testdata"],
+    embed = [":tree"],
+    deps = [
+        "//bind",
+        "//config",
+        "//dir/server/serverlog",
+        "//errors",
+        "//factotum",
+        "//key/inprocess",
+        "//pack/ee",
+        "//path",
+        "//store/inprocess",
+        "//test/testutil",
+        "//upspin",
+    ],
+)

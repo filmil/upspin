@@ -1,0 +1,22 @@
+load("@rules_go//go:def.bzl", "go_binary", "go_library")
+
+go_library(
+    name = "dirserver_lib",
+    srcs = ["main.go"],
+    importpath = "upspin.io/cmd/dirserver",
+    visibility = ["//visibility:private"],
+    deps = [
+        "//cloud/https",
+        "//pack/ee",
+        "//pack/eeintegrity",
+        "//pack/plain",
+        "//serverutil/dirserver",
+        "//transports",
+    ],
+)
+
+go_binary(
+    name = "dirserver",
+    embed = [":dirserver_lib"],
+    visibility = ["//visibility:public"],
+)

@@ -1,0 +1,9 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "packtest",
+    srcs = ["blocktest.go"],
+    importpath = "upspin.io/pack/internal/packtest",
+    visibility = ["//pack:__subpackages__"],
+    deps = ["//upspin"],
+)

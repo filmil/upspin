@@ -1,0 +1,18 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "keyserver",
+    srcs = ["server.go"],
+    importpath = "upspin.io/rpc/keyserver",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//config",
+        "//errors",
+        "//log",
+        "//rpc",
+        "//serverutil",
+        "//upspin",
+        "//upspin/proto",
+        "@com_github_golang_protobuf//proto",
+    ],
+)

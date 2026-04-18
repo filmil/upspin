@@ -1,0 +1,39 @@
+load("@rules_go//go:def.bzl", "go_test")
+
+go_test(
+    name = "test_test",
+    srcs = [
+        "access_test.go",
+        "all_test.go",
+        "copy_test.go",
+        "error_test.go",
+        "group_test.go",
+        "integration_test.go",
+        "snapshot_test.go",
+        "watch_test.go",
+    ],
+    args = ["-test.short"],
+    data = [
+        "//key/testdata",
+        "//cmd/upspin",
+        "//cmd/cacheserver",
+        "//cmd/dirserver",
+        "//cmd/keyserver",
+        "//cmd/storeserver",
+    ],
+    deps = [
+        "//access",
+        "//bind",
+        "//dir/inprocess",
+        "//dir/unassigned",
+        "//errors",
+        "//key/usercache",
+        "//pack/ee",
+        "//pack/eeintegrity",
+        "//pack/plain",
+        "//path",
+        "//store/inprocess",
+        "//test/testenv",
+        "//upspin",
+    ],
+)

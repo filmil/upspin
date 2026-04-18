@@ -1,0 +1,32 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "subcmd",
+    srcs = [
+        "flag.go",
+        "io.go",
+        "server.go",
+        "state.go",
+    ],
+    importpath = "upspin.io/subcmd",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//bind",
+        "//client",
+        "//config",
+        "//path",
+        "//shutdown",
+        "//upspin",
+        "//user",
+    ],
+)
+
+go_test(
+    name = "subcmd_test",
+    srcs = ["io_test.go"],
+    embed = [":subcmd"],
+    deps = [
+        "//config",
+        "//upspin",
+    ],
+)

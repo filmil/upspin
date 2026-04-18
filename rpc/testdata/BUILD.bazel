@@ -1,0 +1,24 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "testdata",
+    srcs = [
+        "proto.go",
+        "testserver.pb.go",
+    ],
+    importpath = "upspin.io/rpc/testdata",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//upspin/proto",
+        "@com_github_golang_protobuf//proto",
+    ],
+)
+
+filegroup(
+    name = "rpc_testdata",
+    srcs = [
+        "cert.pem",
+        "key.pem",
+    ],
+    visibility = ["//visibility:public"],
+)

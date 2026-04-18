@@ -1,0 +1,17 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "web",
+    srcs = ["web.go"],
+    importpath = "upspin.io/serverutil/web",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//access",
+        "//client",
+        "//client/clientutil",
+        "//errors",
+        "//log",
+        "//path",
+        "//upspin",
+    ],
+)

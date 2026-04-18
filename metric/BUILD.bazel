@@ -1,0 +1,22 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "metric",
+    srcs = ["metric.go"],
+    importpath = "upspin.io/metric",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//errors",
+        "//log",
+    ],
+)
+
+go_test(
+    name = "metric_test",
+    srcs = [
+        "all_test.go",
+        "example_test.go",
+    ],
+    embed = [":metric"],
+    deps = ["//errors"],
+)

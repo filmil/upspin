@@ -1,0 +1,19 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "keygen",
+    srcs = ["keygen.go"],
+    importpath = "upspin.io/key/keygen",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//errors",
+        "//key/proquint",
+        "//pack/ee",
+    ],
+)
+
+go_test(
+    name = "keygen_test",
+    srcs = ["keygen_test.go"],
+    embed = [":keygen"],
+)

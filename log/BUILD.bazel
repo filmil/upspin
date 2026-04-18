@@ -1,0 +1,14 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "log",
+    srcs = ["log.go"],
+    importpath = "upspin.io/log",
+    visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "log_test",
+    srcs = ["log_test.go"],
+    embed = [":log"],
+)

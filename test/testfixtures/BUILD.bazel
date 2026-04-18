@@ -1,0 +1,12 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "testfixtures",
+    srcs = [
+        "simpleconfig.go",
+        "testfixtures.go",
+    ],
+    importpath = "upspin.io/test/testfixtures",
+    visibility = ["//visibility:public"],
+    deps = ["//upspin"],
+)

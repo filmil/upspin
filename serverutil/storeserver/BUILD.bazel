@@ -1,0 +1,22 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "storeserver",
+    srcs = ["main.go"],
+    importpath = "upspin.io/serverutil/storeserver",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//config",
+        "//errors",
+        "//flags",
+        "//log",
+        "//pack/eeintegrity",
+        "//pack/plain",
+        "//rpc/storeserver",
+        "//serverutil/perm",
+        "//store/inprocess",
+        "//store/server",
+        "//transports",
+        "//upspin",
+    ],
+)

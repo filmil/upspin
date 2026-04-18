@@ -1,0 +1,40 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "perm",
+    srcs = [
+        "dir.go",
+        "perm.go",
+        "store.go",
+    ],
+    importpath = "upspin.io/serverutil/perm",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//access",
+        "//bind",
+        "//client/clientutil",
+        "//errors",
+        "//log",
+        "//path",
+        "//upspin",
+        "//user",
+    ],
+)
+
+go_test(
+    name = "perm_test",
+    srcs = [
+        "dir_test.go",
+        "perm_test.go",
+        "store_test.go",
+    ],
+    data = ["//key/testdata"],
+    embed = [":perm"],
+    deps = [
+        "//access",
+        "//bind",
+        "//errors",
+        "//test/testenv",
+        "//upspin",
+    ],
+)

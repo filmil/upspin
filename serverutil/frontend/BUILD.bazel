@@ -1,0 +1,35 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "frontend",
+    srcs = [
+        "download.go",
+        "frontend.go",
+        "redirect.go",
+    ],
+    importpath = "upspin.io/serverutil/frontend",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//client",
+        "//config",
+        "//errors",
+        "//flags",
+        "//log",
+        "//pack/eeintegrity",
+        "//path",
+        "//serverutil/web",
+        "//test/testutil",
+        "//transports",
+        "//upspin",
+        "@com_github_microcosm_cc_bluemonday//:bluemonday",
+        "@com_github_nytimes_gziphandler//:gziphandler",
+        "@com_github_russross_blackfriday//:blackfriday",
+    ],
+)
+
+go_test(
+    name = "frontend_test",
+    srcs = ["frontend_test.go"],
+    data = glob(["testdata/**"]),
+    embed = [":frontend"],
+)

@@ -1,0 +1,15 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "local",
+    srcs = ["path.go"],
+    importpath = "upspin.io/cloud/storage/disk/internal/local",
+    visibility = ["//cloud/storage/disk:__subpackages__"],
+    deps = ["//errors"],
+)
+
+go_test(
+    name = "local_test",
+    srcs = ["path_test.go"],
+    embed = [":local"],
+)

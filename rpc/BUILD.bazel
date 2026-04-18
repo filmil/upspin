@@ -1,0 +1,49 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "rpc",
+    srcs = [
+        "certpool.go",
+        "client.go",
+        "doc.go",
+        "keyservice.go",
+        "server.go",
+        "session.go",
+    ],
+    importpath = "upspin.io/rpc",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//bind",
+        "//cache",
+        "//errors",
+        "//factotum",
+        "//log",
+        "//rpc/local",
+        "//serverutil",
+        "//upspin",
+        "//valid",
+        "@com_github_golang_protobuf//proto",
+    ],
+)
+
+go_test(
+    name = "rpc_test",
+    srcs = ["all_test.go"],
+    data = [
+        "//key/testdata",
+        "//rpc/testdata:rpc_testdata",
+    ],
+    embed = [":rpc"],
+    deps = [
+        "//cache",
+        "//cloud/https",
+        "//config",
+        "//errors",
+        "//factotum",
+        "//log",
+        "//rpc/testdata",
+        "//test/testutil",
+        "//upspin",
+        "@com_github_golang_protobuf//proto",
+    ],
+)

@@ -1,0 +1,25 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "errors",
+    srcs = [
+        "debug_stub.go",
+        "errors.go",
+    ],
+    importpath = "upspin.io/errors",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//log",
+        "//upspin",
+    ],
+)
+
+go_test(
+    name = "errors_test",
+    srcs = [
+        "errors_test.go",
+        "example_test.go",
+    ],
+    embed = [":errors"],
+    deps = ["//upspin"],
+)

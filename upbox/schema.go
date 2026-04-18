@@ -489,12 +489,47 @@ func (sc *Schema) Start() error {
 	for _, s := range sc.Servers {
 		cmds = append(cmds, s.ImportPath)
 	}
-	for _, p := range cmds {
-		cmd := exec.Command("go", "build", "-o", sc.Command(path.Base(p)), p)
-		cmd.Stdout = prefix("build: ", os.Stdout)
-		cmd.Stderr = prefix("build: ", os.Stderr)
-		if err := cmd.Run(); err != nil {
-			return fmt.Errorf("%q build error: %v", p, err)
+
+	testSrcDir := os.Getenv("TEST_SRCDIR")
+	if testSrcDir != "" {
+		// Running under Bazel. Copy pre-built binaries from runfiles.
+		workspace := os.Getenv("TEST_WORKSPACE")
+		if workspace == "" {
+			workspace = "upspin"
+		}
+		for _, p := range cmds {
+			name := path.Base(p)
+			src := filepath.Join(testSrcDir, workspace, "cmd", name, name+"_", name)
+			dst := sc.Command(name)
+			
+			err := func() error {
+				in, err := os.Open(src)
+				if err != nil {
+					return fmt.Errorf("failed to open pre-built binary %s: %v", src, err)
+				}
+				defer in.Close()
+				out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0755)
+				if err != nil {
+					return fmt.Errorf("failed to create destination binary %s: %v", dst, err)
+				}
+				defer out.Close()
+				if _, err := io.Copy(out, in); err != nil {
+					return fmt.Errorf("failed to copy binary %s: %v", name, err)
+				}
+				return nil
+			}()
+			if err != nil {
+				return err
+			}
+		}
+	} else {
+		for _, p := range cmds {
+			cmd := exec.Command("go", "build", "-o", sc.Command(path.Base(p)), p)
+			cmd.Stdout = prefix("build: ", os.Stdout)
+			cmd.Stderr = prefix("build: ", os.Stderr)
+			if err := cmd.Run(); err != nil {
+				return fmt.Errorf("%q build error: %v", p, err)
+			}
 		}
 	}
 

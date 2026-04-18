@@ -1,0 +1,13 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "inprocess",
+    srcs = ["store.go"],
+    importpath = "upspin.io/store/inprocess",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//errors",
+        "//key/sha256key",
+        "//upspin",
+    ],
+)

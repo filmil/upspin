@@ -1,0 +1,13 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "packutil",
+    srcs = ["packdata.go"],
+    importpath = "upspin.io/pack/packutil",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//bind",
+        "//errors",
+        "//upspin",
+    ],
+)

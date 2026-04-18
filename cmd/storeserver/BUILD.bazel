@@ -1,0 +1,19 @@
+load("@rules_go//go:def.bzl", "go_binary", "go_library")
+
+go_library(
+    name = "storeserver_lib",
+    srcs = ["main.go"],
+    importpath = "upspin.io/cmd/storeserver",
+    visibility = ["//visibility:private"],
+    deps = [
+        "//cloud/https",
+        "//cloud/storage/disk",
+        "//serverutil/storeserver",
+    ],
+)
+
+go_binary(
+    name = "storeserver",
+    embed = [":storeserver_lib"],
+    visibility = ["//visibility:public"],
+)

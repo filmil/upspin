@@ -20,6 +20,8 @@ import (
 	"upspin.io/test/testfixtures"
 	"upspin.io/test/testutil"
 	"upspin.io/upspin"
+
+	_ "upspin.io/pack/plain"
 )
 
 const (

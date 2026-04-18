@@ -16,6 +16,9 @@ import (
 )
 
 func TestDebug(t *testing.T) {
+	if os.Getenv("TEST_WORKSPACE") != "" {
+		t.Skip("skipping test that runs 'go test' under Bazel")
+	}
 	// Test with -tags debug to run the tests in debug_test.go
 	cmd := exec.Command("go", "test", "-tags", "debug")
 	cmd.Stdout = os.Stdout

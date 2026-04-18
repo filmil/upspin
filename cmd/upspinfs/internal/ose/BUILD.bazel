@@ -1,0 +1,56 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "ose",
+    srcs = ["ose.go"],
+    importpath = "upspin.io/cmd/upspinfs/internal/ose",
+    visibility = ["//cmd/upspinfs:__subpackages__"],
+    deps = select({
+        "@rules_go//go/platform:aix": [
+            "//cache",
+        ],
+        "@rules_go//go/platform:android": [
+            "//cache",
+        ],
+        "@rules_go//go/platform:darwin": [
+            "//cache",
+        ],
+        "@rules_go//go/platform:dragonfly": [
+            "//cache",
+        ],
+        "@rules_go//go/platform:freebsd": [
+            "//cache",
+        ],
+        "@rules_go//go/platform:illumos": [
+            "//cache",
+        ],
+        "@rules_go//go/platform:ios": [
+            "//cache",
+        ],
+        "@rules_go//go/platform:js": [
+            "//cache",
+        ],
+        "@rules_go//go/platform:linux": [
+            "//cache",
+        ],
+        "@rules_go//go/platform:netbsd": [
+            "//cache",
+        ],
+        "@rules_go//go/platform:openbsd": [
+            "//cache",
+        ],
+        "@rules_go//go/platform:osx": [
+            "//cache",
+        ],
+        "@rules_go//go/platform:plan9": [
+            "//cache",
+        ],
+        "@rules_go//go/platform:qnx": [
+            "//cache",
+        ],
+        "@rules_go//go/platform:solaris": [
+            "//cache",
+        ],
+        "//conditions:default": [],
+    }),
+)

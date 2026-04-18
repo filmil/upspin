@@ -1,0 +1,33 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "serverutil",
+    srcs = [
+        "addr.go",
+        "glob.go",
+        "rate.go",
+        "ratecounter.go",
+    ],
+    importpath = "upspin.io/serverutil",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//config",
+        "//errors",
+        "//path",
+        "//upspin",
+    ],
+)
+
+go_test(
+    name = "serverutil_test",
+    srcs = [
+        "glob_test.go",
+        "rate_test.go",
+        "ratecounter_test.go",
+    ],
+    embed = [":serverutil"],
+    deps = [
+        "//errors",
+        "//upspin",
+    ],
+)

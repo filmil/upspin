@@ -1,0 +1,35 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "upspinserver",
+    srcs = ["main.go"],
+    importpath = "upspin.io/serverutil/upspinserver",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//client",
+        "//config",
+        "//dir/server",
+        "//errors",
+        "//factotum",
+        "//flags",
+        "//log",
+        "//pack/ee",
+        "//pack/eeintegrity",
+        "//pack/plain",
+        "//rpc/dirserver",
+        "//rpc/storeserver",
+        "//serverutil/perm",
+        "//serverutil/web",
+        "//store/server",
+        "//subcmd",
+        "//transports",
+        "//upspin",
+        "//version",
+    ],
+)
+
+go_test(
+    name = "upspinserver_test",
+    srcs = ["main_test.go"],
+    embed = [":upspinserver"],
+)
