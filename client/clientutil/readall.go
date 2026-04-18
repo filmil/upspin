@@ -57,7 +57,10 @@ func ReadAll(cfg upspin.Config, entry *upspin.DirEntry) ([]byte, error) {
 		if err != nil {
 			return nil, errors.E(entry.Name, err)
 		}
-		data = append(data, clear...) // TODO: Could avoid a copy if only one block.
+		if len(entry.Blocks) == 1 {
+			return clear, nil
+		}
+		data = append(data, clear...)
 	}
 	return data, nil
 }
