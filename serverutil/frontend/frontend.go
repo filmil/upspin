@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/NYTimes/gziphandler"
+	"github.com/microcosm-cc/bluemonday"
 	"github.com/russross/blackfriday"
 
 	"upspin.io/config"
@@ -225,7 +226,8 @@ func (s *server) parseDocs(dir string) error {
 		if err != nil {
 			return err
 		}
-		html[fn] = blackfriday.MarkdownCommon(b)
+		unsafe := blackfriday.MarkdownCommon(b)
+		html[fn] = bluemonday.UGCPolicy().SanitizeBytes(unsafe)
 		title[fn] = docTitle(b)
 	}
 	s.docHTML = html
