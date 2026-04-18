@@ -1,0 +1,3 @@
+# BCR publication configuration.
+moduleRoots:
+  - "."
