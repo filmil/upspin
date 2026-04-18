@@ -1,0 +1,16 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "storagetest",
+    srcs = [
+        "memory.go",
+        "storagetest.go",
+    ],
+    importpath = "upspin.io/cloud/storage/storagetest",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//cloud/storage",
+        "//errors",
+        "//upspin",
+    ],
+)

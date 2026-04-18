@@ -1,0 +1,34 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "serverlog",
+    srcs = [
+        "doc.go",
+        "log.go",
+    ],
+    importpath = "upspin.io/dir/server/serverlog",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//cloud/storage",
+        "//errors",
+        "//log",
+        "//upspin",
+        "//valid",
+    ],
+)
+
+go_test(
+    name = "serverlog_test",
+    srcs = ["log_test.go"],
+    data = glob(["testdata/**"]) + ["//key/testdata"],
+    embed = [":serverlog"],
+    deps = [
+        "//cloud/storage",
+        "//cloud/storage/storagetest",
+        "//errors",
+        "//factotum",
+        "//log",
+        "//test/testutil",
+        "//upspin",
+    ],
+)

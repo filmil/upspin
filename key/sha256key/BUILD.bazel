@@ -1,0 +1,15 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "sha256key",
+    srcs = ["sha256.go"],
+    importpath = "upspin.io/key/sha256key",
+    visibility = ["//visibility:public"],
+    deps = ["//errors"],
+)
+
+go_test(
+    name = "sha256key_test",
+    srcs = ["sha256_test.go"],
+    embed = [":sha256key"],
+)

@@ -1,0 +1,25 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "access",
+    srcs = ["access.go"],
+    importpath = "upspin.io/access",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//errors",
+        "//path",
+        "//upspin",
+        "//user",
+    ],
+)
+
+go_test(
+    name = "access_test",
+    srcs = ["access_test.go"],
+    embed = [":access"],
+    deps = [
+        "//errors",
+        "//path",
+        "//upspin",
+    ],
+)

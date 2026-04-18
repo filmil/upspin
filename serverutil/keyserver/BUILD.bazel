@@ -1,0 +1,33 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "keyserver",
+    srcs = [
+        "log.go",
+        "main.go",
+    ],
+    importpath = "upspin.io/serverutil/keyserver",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//cloud/mail",
+        "//cloud/mail/sendgrid",
+        "//config",
+        "//errors",
+        "//flags",
+        "//key/inprocess",
+        "//key/server",
+        "//key/transports",
+        "//log",
+        "//rpc/keyserver",
+        "//serverutil/signup",
+        "//upspin",
+        "@in_gopkg_yaml_v2//:yaml_v2",
+    ],
+)
+
+go_test(
+    name = "keyserver_test",
+    srcs = ["main_test.go"],
+    embed = [":keyserver"],
+    deps = ["//serverutil/signup"],
+)

@@ -1,0 +1,27 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "storecache",
+    srcs = [
+        "cache.go",
+        "server.go",
+        "wbq.go",
+    ],
+    importpath = "upspin.io/store/storecache",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//bind",
+        "//cache",
+        "//errors",
+        "//key/sha256key",
+        "//log",
+        "//serverutil",
+        "//upspin",
+    ],
+)
+
+go_test(
+    name = "storecache_test",
+    srcs = ["wbq_test.go"],
+    embed = [":storecache"],
+)

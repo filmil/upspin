@@ -1,0 +1,22 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "storage",
+    srcs = ["storage.go"],
+    importpath = "upspin.io/cloud/storage",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//errors",
+        "//upspin",
+    ],
+)
+
+go_test(
+    name = "storage_test",
+    srcs = ["storage_test.go"],
+    deps = [
+        ":storage",
+        "//cloud/storage/storagetest",
+        "//errors",
+    ],
+)

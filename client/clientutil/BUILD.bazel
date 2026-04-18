@@ -1,0 +1,35 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "clientutil",
+    srcs = ["readall.go"],
+    importpath = "upspin.io/client/clientutil",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//access",
+        "//bind",
+        "//errors",
+        "//pack",
+        "//path",
+        "//upspin",
+    ],
+)
+
+go_test(
+    name = "clientutil_test",
+    srcs = ["all_test.go"],
+    data = ["//key/testdata"],
+    embed = [":clientutil"],
+    deps = [
+        "//bind",
+        "//config",
+        "//errors",
+        "//factotum",
+        "//key/inprocess",
+        "//pack/packutil",
+        "//pack/plain",
+        "//test/testfixtures",
+        "//test/testutil",
+        "//upspin",
+    ],
+)

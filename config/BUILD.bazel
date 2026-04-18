@@ -1,0 +1,35 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "config",
+    srcs = [
+        "initconfig.go",
+        "localname.go",
+        "user.go",
+    ],
+    importpath = "upspin.io/config",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//errors",
+        "//factotum",
+        "//log",
+        "//pack",
+        "//pack/ee",
+        "//upspin",
+        "//user",
+        "@in_gopkg_yaml_v2//:yaml_v2",
+    ],
+)
+
+go_test(
+    name = "config_test",
+    srcs = ["initconfig_test.go"],
+    data = ["//key/testdata"],
+    embed = [":config"],
+    deps = [
+        "//pack",
+        "//pack/ee",
+        "//pack/plain",
+        "//upspin",
+    ],
+)

@@ -88,6 +88,13 @@ var testKeyDir = findTestKeyDir() // Do this just once.
 // repository in a Go workspace and returns its absolute path.
 // If the upspin.io repository cannot be found, it returns ".".
 func findTestKeyDir() string {
+	if testSrcDir := os.Getenv("TEST_SRCDIR"); testSrcDir != "" {
+		workspace := os.Getenv("TEST_WORKSPACE")
+		if workspace == "" {
+			workspace = "upspin"
+		}
+		return filepath.Join(testSrcDir, workspace, "rpc", "testdata")
+	}
 	p, err := build.Import("upspin.io/rpc/testdata", "", build.FindOnly)
 	if err != nil {
 		return "."

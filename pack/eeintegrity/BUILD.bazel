@@ -1,0 +1,35 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "eeintegrity",
+    srcs = ["eeintegrity.go"],
+    importpath = "upspin.io/pack/eeintegrity",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//errors",
+        "//factotum",
+        "//pack",
+        "//pack/internal",
+        "//pack/packutil",
+        "//path",
+        "//upspin",
+    ],
+)
+
+go_test(
+    name = "eeintegrity_test",
+    srcs = ["eeintegrity_test.go"],
+    data = ["//key/testdata"],
+    embed = [":eeintegrity"],
+    deps = [
+        "//bind",
+        "//config",
+        "//errors",
+        "//factotum",
+        "//pack",
+        "//pack/internal/packtest",
+        "//test/testfixtures",
+        "//test/testutil",
+        "//upspin",
+    ],
+)

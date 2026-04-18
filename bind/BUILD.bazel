@@ -1,0 +1,23 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "bind",
+    srcs = ["bind.go"],
+    importpath = "upspin.io/bind",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//errors",
+        "//upspin",
+        "//user",
+    ],
+)
+
+go_test(
+    name = "bind_test",
+    srcs = ["bind_test.go"],
+    embed = [":bind"],
+    deps = [
+        "//test/testfixtures",
+        "//upspin",
+    ],
+)

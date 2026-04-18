@@ -1,0 +1,20 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "user",
+    srcs = ["user.go"],
+    importpath = "upspin.io/user",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//errors",
+        "//upspin",
+        "@org_golang_x_text//secure/precis",
+    ],
+)
+
+go_test(
+    name = "user_test",
+    srcs = ["user_test.go"],
+    embed = [":user"],
+    deps = ["//upspin"],
+)

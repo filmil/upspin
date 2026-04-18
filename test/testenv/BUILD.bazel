@@ -1,0 +1,33 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "testenv",
+    srcs = [
+        "match.go",
+        "runner.go",
+        "testenv.go",
+    ],
+    importpath = "upspin.io/test/testenv",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//access",
+        "//bind",
+        "//client",
+        "//config",
+        "//dir/inprocess",
+        "//dir/remote",
+        "//dir/server",
+        "//errors",
+        "//factotum",
+        "//key/inprocess",
+        "//key/remote",
+        "//log",
+        "//store/inprocess",
+        "//store/remote",
+        "//test/servermux",
+        "//test/testutil",
+        "//upbox",
+        "//upspin",
+        "//user",
+    ],
+)

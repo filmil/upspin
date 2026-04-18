@@ -1,0 +1,12 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "mail",
+    srcs = [
+        "logger.go",
+        "mail.go",
+    ],
+    importpath = "upspin.io/cloud/mail",
+    visibility = ["//visibility:public"],
+    deps = ["//log"],
+)

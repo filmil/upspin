@@ -1,0 +1,14 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "proquint",
+    srcs = ["proquint.go"],
+    importpath = "upspin.io/key/proquint",
+    visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "proquint_test",
+    srcs = ["proquint_test.go"],
+    embed = [":proquint"],
+)

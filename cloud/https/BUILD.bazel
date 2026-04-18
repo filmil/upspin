@@ -1,0 +1,17 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "https",
+    srcs = ["https.go"],
+    importpath = "upspin.io/cloud/https",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//access",
+        "//errors",
+        "//flags",
+        "//log",
+        "//serverutil",
+        "//shutdown",
+        "@org_golang_x_crypto//acme/autocert",
+    ],
+)

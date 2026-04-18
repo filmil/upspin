@@ -1,0 +1,34 @@
+load("@rules_go//go:def.bzl", "go_binary", "go_library")
+
+go_library(
+    name = "upspin-audit_lib",
+    srcs = [
+        "bytesize.go",
+        "deletegarbage.go",
+        "findgarbage.go",
+        "main.go",
+        "scandir.go",
+        "scanstore.go",
+    ],
+    importpath = "upspin.io/cmd/upspin-audit",
+    visibility = ["//visibility:private"],
+    deps = [
+        "//bind",
+        "//cloud/storage",
+        "//cloud/storage/disk",
+        "//config",
+        "//errors",
+        "//flags",
+        "//path",
+        "//subcmd",
+        "//transports",
+        "//upspin",
+        "//version",
+    ],
+)
+
+go_binary(
+    name = "upspin-audit",
+    embed = [":upspin-audit_lib"],
+    visibility = ["//visibility:public"],
+)

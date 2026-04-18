@@ -1,0 +1,17 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "dirserver",
+    srcs = ["server.go"],
+    importpath = "upspin.io/rpc/dirserver",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//config",
+        "//errors",
+        "//log",
+        "//rpc",
+        "//upspin",
+        "//upspin/proto",
+        "@com_github_golang_protobuf//proto",
+    ],
+)

@@ -1,0 +1,25 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "valid",
+    srcs = ["valid.go"],
+    importpath = "upspin.io/valid",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//access",
+        "//errors",
+        "//path",
+        "//upspin",
+        "//user",
+    ],
+)
+
+go_test(
+    name = "valid_test",
+    srcs = ["valid_test.go"],
+    embed = [":valid"],
+    deps = [
+        "//access",
+        "//upspin",
+    ],
+)

@@ -1,0 +1,17 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "remote",
+    srcs = ["remote.go"],
+    importpath = "upspin.io/key/remote",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//bind",
+        "//errors",
+        "//key/usercache",
+        "//log",
+        "//rpc",
+        "//upspin",
+        "//upspin/proto",
+    ],
+)

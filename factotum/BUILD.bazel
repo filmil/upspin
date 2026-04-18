@@ -1,0 +1,21 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "factotum",
+    srcs = ["factotum.go"],
+    importpath = "upspin.io/factotum",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//errors",
+        "//upspin",
+        "@org_golang_x_crypto//hkdf",
+    ],
+)
+
+go_test(
+    name = "factotum_test",
+    srcs = ["factotum_test.go"],
+    data = glob(["testdata/**"]),
+    embed = [":factotum"],
+    deps = ["//upspin"],
+)

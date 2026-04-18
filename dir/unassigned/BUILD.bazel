@@ -1,0 +1,13 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "unassigned",
+    srcs = ["unassigned.go"],
+    importpath = "upspin.io/dir/unassigned",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//bind",
+        "//errors",
+        "//upspin",
+    ],
+)

@@ -86,7 +86,13 @@ func TestNew(t *testing.T) {
 		t.Errorf("Expected %v, got %v", expErr, err)
 	}
 
-	_, err = New("backend=Disk", "basePath=/tmp", "dance=the macarena")
+	dirtyDir, err := os.MkdirTemp("", "dirty")
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(dirtyDir+"/file", []byte("data"), 0644)
+	_, err = New("backend=Disk", "basePath="+dirtyDir, "dance=the macarena")
+	os.RemoveAll(dirtyDir)
 	if err == nil {
 		t.Fatalf("Expected error")
 	}

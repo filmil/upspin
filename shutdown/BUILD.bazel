@@ -1,0 +1,15 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "shutdown",
+    srcs = ["shutdown.go"],
+    importpath = "upspin.io/shutdown",
+    visibility = ["//visibility:public"],
+    deps = ["//log"],
+)
+
+go_test(
+    name = "shutdown_test",
+    srcs = ["shutdown_test.go"],
+    embed = [":shutdown"],
+)

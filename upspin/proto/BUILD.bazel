@@ -1,0 +1,16 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "proto",
+    srcs = [
+        "proto.go",
+        "upspin.pb.go",
+    ],
+    importpath = "upspin.io/upspin/proto",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//errors",
+        "//upspin",
+        "@com_github_golang_protobuf//proto",
+    ],
+)

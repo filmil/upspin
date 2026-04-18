@@ -1,0 +1,15 @@
+load("@rules_go//go:def.bzl", "go_binary", "go_library")
+
+go_library(
+    name = "upspin-setupstorage_lib",
+    srcs = ["setupstorage.go"],
+    importpath = "upspin.io/cmd/upspin-setupstorage",
+    visibility = ["//visibility:private"],
+    deps = ["//subcmd"],
+)
+
+go_binary(
+    name = "upspin-setupstorage",
+    embed = [":upspin-setupstorage_lib"],
+    visibility = ["//visibility:public"],
+)

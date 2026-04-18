@@ -1,0 +1,29 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "upbox",
+    srcs = [
+        "generate_cert.go",
+        "schema.go",
+    ],
+    importpath = "upspin.io/upbox",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//config",
+        "//log",
+        "//rpc/local",
+        "//test/testutil",
+        "//upspin",
+        "@in_gopkg_yaml_v2//:yaml_v2",
+    ],
+)
+
+go_test(
+    name = "upbox_test",
+    srcs = ["bazel_test.go"],
+    data = [
+        "//cmd/cacheserver",
+        "//cmd/upspin",
+    ],
+    embed = [":upbox"],
+)

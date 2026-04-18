@@ -1,0 +1,47 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "inprocess",
+    srcs = [
+        "directory.go",
+        "watch.go",
+    ],
+    importpath = "upspin.io/dir/inprocess",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//access",
+        "//bind",
+        "//client/clientutil",
+        "//errors",
+        "//log",
+        "//pack",
+        "//pack/ee",
+        "//path",
+        "//serverutil",
+        "//upspin",
+        "//user",
+        "//valid",
+    ],
+)
+
+go_test(
+    name = "inprocess_test",
+    srcs = ["all_test.go"],
+    data = ["//key/testdata"],
+    embed = [":inprocess"],
+    deps = [
+        "//bind",
+        "//config",
+        "//errors",
+        "//factotum",
+        "//key/inprocess",
+        "//pack",
+        "//pack/ee",
+        "//pack/eeintegrity",
+        "//pack/plain",
+        "//path",
+        "//store/inprocess",
+        "//test/testutil",
+        "//upspin",
+    ],
+)

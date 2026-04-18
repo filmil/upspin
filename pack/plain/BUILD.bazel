@@ -1,0 +1,34 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "plain",
+    srcs = ["plain.go"],
+    importpath = "upspin.io/pack/plain",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//errors",
+        "//factotum",
+        "//pack",
+        "//pack/internal",
+        "//pack/packutil",
+        "//path",
+        "//upspin",
+    ],
+)
+
+go_test(
+    name = "plain_test",
+    srcs = ["plain_test.go"],
+    data = ["//key/testdata"],
+    deps = [
+        ":plain",
+        "//config",
+        "//errors",
+        "//factotum",
+        "//pack",
+        "//pack/internal/packtest",
+        "//test/testfixtures",
+        "//test/testutil",
+        "//upspin",
+    ],
+)

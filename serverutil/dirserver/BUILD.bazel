@@ -1,0 +1,23 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "dirserver",
+    srcs = ["main.go"],
+    importpath = "upspin.io/serverutil/dirserver",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//config",
+        "//dir/inprocess",
+        "//dir/server",
+        "//errors",
+        "//flags",
+        "//log",
+        "//pack/ee",
+        "//pack/eeintegrity",
+        "//pack/plain",
+        "//rpc/dirserver",
+        "//serverutil/perm",
+        "//transports",
+        "//upspin",
+    ],
+)

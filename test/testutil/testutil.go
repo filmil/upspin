@@ -19,6 +19,15 @@ import (
 
 // Repo returns the local filename of a file in the Upspin repository.
 func Repo(dir ...string) string {
+	if testSrcDir := os.Getenv("TEST_SRCDIR"); testSrcDir != "" {
+		// We are running under Bazel.
+		// The files are in $TEST_SRCDIR/$TEST_WORKSPACE/
+		workspace := os.Getenv("TEST_WORKSPACE")
+		if workspace == "" {
+			workspace = "upspin"
+		}
+		return filepath.Join(testSrcDir, workspace, filepath.Join(dir...))
+	}
 	wd, _ := os.Getwd()
 	p, err := build.Import("upspin.io/upspin", wd, build.FindOnly)
 	if err != nil {

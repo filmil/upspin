@@ -1,0 +1,8 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "testutil",
+    srcs = ["testutil.go"],
+    importpath = "upspin.io/test/testutil",
+    visibility = ["//visibility:public"],
+)
