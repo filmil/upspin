@@ -1,3 +1,9 @@
+# Upspin (maintained)
+
+[![Go Test](https://github.com/filmil/upspin/actions/workflows/test.yml/badge.svg)](https://github.com/filmil/upspin/actions/workflows/test.yml)
+
+---
+
 2025-02-11 announcement: Turning down Upspin infrastructure 
 
 Upspin, like Unix and Plan 9, was intended to foster communities of sharing, but has been less successful at that than we hoped. As a consequence, with regret, we have decided to turn down the central infrastructure such as the keyserver over the coming months 
