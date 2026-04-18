@@ -1,0 +1,45 @@
+name: Bazel Build and Test
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  schedule:
+    - cron: '0 0 * * 0' # Once a week on Sunday at midnight
+
+jobs:
+  build_and_test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Get Date
+        id: get-date
+        run: echo "date=$(date -u '+%Y-%m-%d')" >> $GITHUB_OUTPUT
+
+      - name: Mount Bazel cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/bazel
+            .bazel-cache
+          key: bazel-cache-${{ runner.os }}-${{ steps.get-date.outputs.date }}-${{ github.run_id }}
+          restore-keys: |
+            bazel-cache-${{ runner.os }}-${{ steps.get-date.outputs.date }}-
+            bazel-cache-${{ runner.os }}-
+
+      - name: Install Bazel
+        uses: bazel-contrib/setup-bazel@0.8.5
+        with:
+          bazelisk-cache: true
+          disk-cache: ${{ github.workspace }}/.bazel-cache
+
+      - name: Bazel Build
+        run: bazel build //...
+
+      - name: Bazel Test
+        run: bazel test //...
