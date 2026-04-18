@@ -18,7 +18,7 @@ import (
 	"upspin.io/errors"
 	"upspin.io/factotum"
 	"upspin.io/log"
-	prototest "upspin.io/rpc/testdata"
+	testdata "upspin.io/rpc/testdata"
 	"upspin.io/test/testutil"
 	"upspin.io/upspin"
 )
@@ -82,12 +82,12 @@ func startServer(t *testing.T) (port string) {
 }
 
 func (s *server) UnauthenticatedEcho(reqBytes []byte) (pb.Message, error) {
-	var req prototest.EchoRequest
+	var req testdata.EchoRequest
 	if err := pb.Unmarshal(reqBytes, &req); err != nil {
 		return nil, err
 	}
 	if req.Payload == payloads[s.iteration] {
-		resp := &prototest.EchoResponse{
+		resp := &testdata.EchoResponse{
 			Payload: payloads[s.iteration],
 		}
 		log.Printf("Server: UnauthenticatedEcho response: %q", resp.Payload)
@@ -99,7 +99,7 @@ func (s *server) UnauthenticatedEcho(reqBytes []byte) (pb.Message, error) {
 }
 
 func (s *server) Echo(session Session, reqBytes []byte) (pb.Message, error) {
-	var req prototest.EchoRequest
+	var req testdata.EchoRequest
 	if err := pb.Unmarshal(reqBytes, &req); err != nil {
 		return nil, err
 	}
@@ -107,7 +107,7 @@ func (s *server) Echo(session Session, reqBytes []byte) (pb.Message, error) {
 		s.t.Fatalf("Expected user %q, got %q", joeUser, session.User())
 	}
 	if req.Payload == payloads[s.iteration] {
-		resp := &prototest.EchoResponse{
+		resp := &testdata.EchoResponse{
 			Payload: payloads[s.iteration],
 		}
 		log.Printf("Server: Echo response: %q", resp.Payload)
@@ -119,7 +119,7 @@ func (s *server) Echo(session Session, reqBytes []byte) (pb.Message, error) {
 }
 
 func (s *server) Count(session Session, reqBytes []byte, done <-chan struct{}) (<-chan pb.Message, error) {
-	var req prototest.CountRequest
+	var req testdata.CountRequest
 	if err := pb.Unmarshal(reqBytes, &req); err != nil {
 		return nil, err
 	}
@@ -129,7 +129,7 @@ func (s *server) Count(session Session, reqBytes []byte, done <-chan struct{}) (
 	go func() {
 		defer close(out)
 		for i := req.Start; i < req.Start+req.Count; i++ {
-			resp := &prototest.CountResponse{
+			resp := &testdata.CountResponse{
 				Number: i,
 			}
 			select {
@@ -148,10 +148,10 @@ type client struct {
 }
 
 func (c *client) UnauthenticatedEcho(t *testing.T, payload string) (response string) {
-	req := &prototest.EchoRequest{
+	req := &testdata.EchoRequest{
 		Payload: payload,
 	}
-	resp := new(prototest.EchoResponse)
+	resp := new(testdata.EchoResponse)
 	log.Printf("Client: UnauthenticatedEcho request: %q", req.Payload)
 	if err := c.Invoke("Server/UnauthenticatedEcho", req, resp, nil, nil); err != nil {
 		t.Fatal(err)
@@ -161,10 +161,10 @@ func (c *client) UnauthenticatedEcho(t *testing.T, payload string) (response str
 }
 
 func (c *client) Echo(t *testing.T, payload string) (response string) {
-	req := &prototest.EchoRequest{
+	req := &testdata.EchoRequest{
 		Payload: payload,
 	}
-	resp := new(prototest.EchoResponse)
+	resp := new(testdata.EchoResponse)
 	log.Printf("Client: Echo request: %q", req.Payload)
 	if err := c.Invoke("Server/Echo", req, resp, nil, nil); err != nil {
 		t.Fatal(err)
@@ -174,7 +174,7 @@ func (c *client) Echo(t *testing.T, payload string) (response string) {
 }
 
 func (c *client) Count(t *testing.T, start, count int32) {
-	req := &prototest.CountRequest{
+	req := &testdata.CountRequest{
 		Start: start,
 		Count: count,
 	}
@@ -206,10 +206,10 @@ func (c *client) Count(t *testing.T, start, count int32) {
 	}
 }
 
-type countStream chan prototest.CountResponse
+type countStream chan testdata.CountResponse
 
 func (s countStream) Send(b []byte, done <-chan struct{}) error {
-	var e prototest.CountResponse
+	var e testdata.CountResponse
 	if err := pb.Unmarshal(b, &e); err != nil {
 		return err
 	}

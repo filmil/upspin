@@ -1,4 +1,4 @@
-package prototest
+package testdata
 
 // To regenerate the protocol buffer output for this package, run
 //	go generate

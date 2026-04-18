@@ -1,17 +1,13 @@
+load("@protobuf//bazel:proto_library.bzl", "proto_library")
 load("@rules_go//go:def.bzl", "go_library")
+load("@rules_go//proto:def.bzl", "go_proto_library")
 
 go_library(
     name = "testdata",
-    srcs = [
-        "proto.go",
-        "testserver.pb.go",
-    ],
+    srcs = ["proto.go"],
+    embed = [":prototest_go_proto"],
     importpath = "upspin.io/rpc/testdata",
     visibility = ["//visibility:public"],
-    deps = [
-        "//upspin/proto",
-        "@com_github_golang_protobuf//proto",
-    ],
 )
 
 filegroup(
@@ -21,4 +17,20 @@ filegroup(
         "key.pem",
     ],
     visibility = ["//visibility:public"],
+)
+
+proto_library(
+    name = "prototest_proto",
+    srcs = ["testserver.proto"],
+    visibility = ["//visibility:public"],
+    deps = ["//upspin/proto:proto_proto"],
+)
+
+go_proto_library(
+    name = "prototest_go_proto",
+    compilers = ["@rules_go//proto:go_proto"],
+    importpath = "upspin.io/rpc/testdata",
+    proto = ":prototest_proto",
+    visibility = ["//visibility:public"],
+    deps = ["//upspin/proto"],
 )
