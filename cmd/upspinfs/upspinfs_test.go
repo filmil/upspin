@@ -752,6 +752,9 @@ func bytesUsed(t *testing.T, dir string) int64 {
 	var sum int64
 	fn := func(path string, info os.FileInfo, err error) error {
 		if err != nil {
+			if os.IsNotExist(err) {
+				return nil
+			}
 			return err
 		}
 		sum += info.Size()
