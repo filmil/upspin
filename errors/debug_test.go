@@ -18,10 +18,10 @@ import (
 )
 
 var errorLines = strings.Split(strings.TrimSpace(`
-	.*/upspin.io/errors/debug_test.go:\d+: upspin.io/errors_test..*
-	.*/upspin.io/errors/debug_test.go:\d+: .*
-	.*/upspin.io/valid/valid.go:\d+: .*valid.UserName:
-	.*/upspin.io/user/user.go:\d+: ...user.Parse: op: user@home/path: invalid operation:
+	.*/errors/debug_test.go:\d+: upspin.io/errors_test..*
+	.*/errors/debug_test.go:\d+: .*
+	.*/valid/valid.go:\d+: .*valid.UserName:
+	.*/user/user.go:\d+: ...user.Parse: op: user@home/path: invalid operation:
 	valid.UserName:
 	user.Parse: user bad-username: user name must contain one @ symbol
 `), "\n")
