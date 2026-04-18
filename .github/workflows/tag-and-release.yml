@@ -1,0 +1,127 @@
+name: Tag and Release
+
+on:
+  schedule:
+    - cron: '0 0 20 * *'
+  workflow_dispatch:
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    outputs:
+      tag_name: ${{ steps.tag_version.outputs.new_tag }}
+    steps:
+      - name: Setup bazel
+        uses: bazel-contrib/setup-bazel@0.8.5
+        with:
+          bazelisk-cache: true
+          disk-cache: ${{ github.workflow }}
+          repository-cache: true
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Cache
+        uses: actions/cache@v4
+        with:
+          path: "~/.cache/bazel"
+          key: ${{ runner.os }}-bazel-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-bazel-
+      - name: "Test"
+        run: "bazel test --test_output=errors //..."
+      - name: Bump version and push tag
+        id: tag_version
+        uses: mathieudutour/github-tag-action@v6.2
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          release_branches: main
+      - name: Create a GitHub release
+        uses: ncipollo/release-action@v1
+        with:
+          tag: ${{ steps.tag_version.outputs.new_tag }}
+          generateReleaseNotes: true
+      - name: Get release tag
+        id: get_version
+        run: echo "VERSION=${{ steps.tag_version.outputs.new_tag }}" >> $GITHUB_ENV
+      - name: Get repo name
+        id: get_repo_name
+        run: echo "REPO_NAME=$(echo '${{ github.repository }}' | awk -F '/' '{print $2}')" >> $GITHUB_ENV
+      - name: "Publish source archive"
+        uses: thedoctor0/zip-release@0.7.5
+        with:
+          type: 'zip'
+          filename: "${{ env.REPO_NAME }}-${{ env.VERSION }}.zip"
+          exclusions: '*.git* /*node_modules/* .editorconfig /bazel-*'
+      - name: "Upload source archive"
+        uses: ncipollo/release-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag: ${{ steps.tag_version.outputs.new_tag }}
+          allowUpdates: true
+          artifacts: "${{ env.REPO_NAME }}-${{ env.VERSION }}.zip"
+
+  release:
+    needs: tag
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: ["amd64", "arm64"]
+        os: ["linux", "darwin", "windows"]
+    steps:
+      - name: Setup bazel
+        uses: bazel-contrib/setup-bazel@0.8.5
+        with:
+          bazelisk-cache: true
+          disk-cache: ${{ github.workflow }}
+          repository-cache: true
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Cache
+        uses: actions/cache@v4
+        with:
+          path: "~/.cache/bazel"
+          key: ${{ runner.os }}-${{ matrix.arch }}-bazel-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.arch }}-bazel-
+      - name: "Build binaries for ${{ matrix.os }}_${{ matrix.arch }}"
+        run: |
+          TARGETS=$(bazel query 'kind("go_binary", //cmd/...)')
+          bazel build --platforms=@rules_go//go/toolchain:${{ matrix.os }}_${{ matrix.arch }} $(echo $TARGETS)
+      - name: "Package binaries"
+        run: |
+          mkdir -p release-binaries
+          TARGETS=$(bazel query 'kind("go_binary", //cmd/...)')
+          FILES=$(bazel cquery "set($TARGETS)" --platforms=@rules_go//go/toolchain:${{ matrix.os }}_${{ matrix.arch }} --output=files 2>/dev/null | grep bazel-out)
+          cp $FILES release-binaries/
+          zip -j -r upspin-binaries-${{ matrix.os }}-${{ matrix.arch }}.zip release-binaries/
+      - name: Find version tag
+        id: tag_version
+        uses: mathieudutour/github-tag-action@v6.2
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          release_branches: main
+          dry_run: true
+      - name: "Publish ${{ matrix.os }}_${{ matrix.arch }}"
+        uses: ncipollo/release-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          allowUpdates: true
+          artifacts: "upspin-binaries-${{ matrix.os }}-${{ matrix.arch }}.zip"
+          tag: ${{ steps.tag_version.outputs.previous_tag }}
+
+  publish-my-registry:
+    needs: tag
+    uses: ./.github/workflows/publish.yml
+    with:
+      tag_name: ${{ needs.tag.outputs.tag_name }}
+    secrets:
+      BCR_PUBLISH_TOKEN: ${{ secrets.BCR_PUBLISH_TOKEN }}
+
+  publish-bcr:
+    needs: tag
+    uses: ./.github/workflows/publish-bcr.yml
+    with:
+      tag_name: ${{ needs.tag.outputs.tag_name }}
+    secrets:
+      BCR_PUBLISH_TOKEN: ${{ secrets.BCR_PUBLISH_TOKEN }}
