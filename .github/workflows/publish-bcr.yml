@@ -1,0 +1,32 @@
+name: "Publish on Bazel Central Registry"
+
+on:
+  workflow_call:
+    secrets:
+      BCR_PUBLISH_TOKEN:
+        required: false
+        description: 'Optional token for BCR publishing.'
+    inputs:
+      tag_name:
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: "Tag to publish"
+        required: true
+        type: string
+
+jobs:
+  publish:
+    uses: "bazel-contrib/publish-to-bcr/.github/workflows/publish.yaml@v0.2.2"
+    with:
+      tag_name: ${{ inputs.tag_name }}
+      registry_fork: filmil/bazel-central-registry
+      attest: false
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    secrets:
+      publish_token: ${{ secrets.BCR_PUBLISH_TOKEN }}
