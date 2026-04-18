@@ -57,7 +57,9 @@ jobs:
           exclusions: '*.git* /*node_modules/* .editorconfig /bazel-*'
       - name: "Publish source archive (tar.gz)"
         run: |
-          git archive --format=tar.gz --prefix="${{ env.REPO_NAME }}-${{ env.VERSION }}/" -o "${{ env.VERSION }}.tar.gz" HEAD
+          VERSION_STR="${{ env.VERSION }}"
+          PREFIX="${{ env.REPO_NAME }}-${VERSION_STR#v}/"
+          git archive --format=tar.gz --prefix="$PREFIX" -o "${{ env.VERSION }}.tar.gz" HEAD
       - name: Generate artifact attestation for source archive (zip)
         uses: actions/attest-build-provenance@v2
         with:
