@@ -79,6 +79,8 @@ To run all tests:
 bazel test //...
 ```
 
+**CRITICAL RULE:** You must run all tests (`bazel test //...`) after making any code changes to ensure no regressions are introduced before concluding the task.
+
 ## Maintenance with Gazelle
 
 We use Gazelle to automatically generate and update `BUILD.bazel` files.
