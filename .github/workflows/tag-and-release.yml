@@ -8,6 +8,10 @@ on:
 jobs:
   tag:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
     outputs:
       tag_name: ${{ steps.tag_version.outputs.new_tag }}
     steps:
@@ -51,6 +55,10 @@ jobs:
           type: 'zip'
           filename: "${{ env.REPO_NAME }}-${{ env.VERSION }}.zip"
           exclusions: '*.git* /*node_modules/* .editorconfig /bazel-*'
+      - name: Generate artifact attestation for source archive
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: "${{ env.REPO_NAME }}-${{ env.VERSION }}.zip"
       - name: "Upload source archive"
         uses: ncipollo/release-action@v1
         env:
@@ -63,6 +71,10 @@ jobs:
   release:
     needs: tag
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
     strategy:
       matrix:
         arch: ["amd64", "arm64"]
@@ -101,6 +113,10 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           release_branches: main
           dry_run: true
+      - name: Generate artifact attestation for compiled binaries
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: "upspin-binaries-${{ matrix.os }}-${{ matrix.arch }}.zip"
       - name: "Publish ${{ matrix.os }}_${{ matrix.arch }}"
         uses: ncipollo/release-action@v1
         env:
