@@ -4,6 +4,12 @@
 
 ---
 
+**2026-04-18 update: Reviving Upspin source code**
+
+I am reviving the Upspin source code in this repository. The goal is to maintain the project, keep it building with modern tools (like Bazel), and provide a working environment for those who still find Upspin's concepts valuable.
+
+---
+
 2025-02-11 announcement: Turning down Upspin infrastructure 
 
 Upspin, like Unix and Plan 9, was intended to foster communities of sharing, but has been less successful at that than we hoped. As a consequence, with regret, we have decided to turn down the central infrastructure such as the keyserver over the coming months 
