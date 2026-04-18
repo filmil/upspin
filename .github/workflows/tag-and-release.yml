@@ -49,24 +49,33 @@ jobs:
       - name: Get repo name
         id: get_repo_name
         run: echo "REPO_NAME=$(echo '${{ github.repository }}' | awk -F '/' '{print $2}')" >> $GITHUB_ENV
-      - name: "Publish source archive"
+      - name: "Publish source archive (zip)"
         uses: thedoctor0/zip-release@0.7.5
         with:
           type: 'zip'
           filename: "${{ env.REPO_NAME }}-${{ env.VERSION }}.zip"
           exclusions: '*.git* /*node_modules/* .editorconfig /bazel-*'
-      - name: Generate artifact attestation for source archive
+      - name: "Publish source archive (tar.gz)"
+        run: |
+          VERSION_STR="${{ env.VERSION }}"
+          PREFIX="${{ env.REPO_NAME }}-${VERSION_STR#v}/"
+          git archive --format=tar.gz --prefix="$PREFIX" -o "${{ env.VERSION }}.tar.gz" HEAD
+      - name: Generate artifact attestation for source archive (zip)
         uses: actions/attest-build-provenance@v2
         with:
           subject-path: "${{ env.REPO_NAME }}-${{ env.VERSION }}.zip"
-      - name: "Upload source archive"
+      - name: Generate artifact attestation for source archive (tar.gz)
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: "${{ env.VERSION }}.tar.gz"
+      - name: "Upload source archives"
         uses: ncipollo/release-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tag: ${{ steps.tag_version.outputs.new_tag }}
           allowUpdates: true
-          artifacts: "${{ env.REPO_NAME }}-${{ env.VERSION }}.zip"
+          artifacts: "${{ env.REPO_NAME }}-${{ env.VERSION }}.zip,${{ env.VERSION }}.tar.gz"
 
   release:
     needs: tag
