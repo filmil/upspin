@@ -1,6 +1,6 @@
 # Upspin (maintained)
 
-[![Go Test](https://github.com/filmil/upspin/actions/workflows/test.yml/badge.svg)](https://github.com/filmil/upspin/actions/workflows/test.yml)
+[![Bazel Build and Test](https://github.com/filmil/upspin/actions/workflows/bazel.yml/badge.svg)](https://github.com/filmil/upspin/actions/workflows/bazel.yml)
 
 ---
 
