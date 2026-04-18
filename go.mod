@@ -7,10 +7,15 @@ require (
 	github.com/golang/protobuf v1.5.4
 	github.com/presotto/fuse v0.0.0-20220404205012-944bbcc73d97
 	github.com/russross/blackfriday v1.6.0
-	golang.org/x/crypto v0.22.0
-	golang.org/x/net v0.24.0
-	golang.org/x/text v0.14.0
+	golang.org/x/crypto v0.24.0
+	golang.org/x/net v0.26.0
+	golang.org/x/text v0.16.0
 	gopkg.in/yaml.v2 v2.4.0
 )
 
-require google.golang.org/protobuf v1.33.0 // indirect
+require (
+	github.com/aymerick/douceur v0.2.0 // indirect
+	github.com/gorilla/css v1.0.1 // indirect
+	github.com/microcosm-cc/bluemonday v1.0.27 // indirect
+	google.golang.org/protobuf v1.33.0 // indirect
+)
