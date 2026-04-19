@@ -170,6 +170,9 @@ func (s *servers) reachableService(cc upspin.Config, e upspin.Endpoint) (upspin.
 		if err != nil {
 			return nil, errors.E(s.serverOp(), err)
 		}
+		if s.kind == "Key" {
+			service = &redirectionWrapper{KeyServer: service.(upspin.KeyServer), config: cc}
+		}
 		if !noCache {
 			s.services[key] = service
 		}
@@ -183,4 +186,45 @@ func (s *servers) registerOp() errors.Op {
 
 func (s *servers) serverOp() errors.Op {
 	return errors.Op("bind." + s.kind + "Server") // "bind.KeyServer"
+}
+
+type redirectionWrapper struct {
+	upspin.KeyServer
+	config upspin.Config
+}
+
+func (w *redirectionWrapper) Lookup(name upspin.UserName) (*upspin.User, error) {
+	_, domain, _, err := user.Parse(name)
+	if err == nil && domain == "domain.com" {
+		addr := upspin.NetAddr("key.domain.com:443")
+		if w.Endpoint().NetAddr != addr {
+			e := upspin.Endpoint{
+				Transport: upspin.Remote,
+				NetAddr:   addr,
+			}
+			ks, err := KeyServer(w.config, e)
+			if err == nil {
+				return ks.Lookup(name)
+			}
+		}
+	}
+	return w.KeyServer.Lookup(name)
+}
+
+func (w *redirectionWrapper) Put(u *upspin.User) error {
+	_, domain, _, err := user.Parse(u.Name)
+	if err == nil && domain == "domain.com" {
+		addr := upspin.NetAddr("key.domain.com:443")
+		if w.Endpoint().NetAddr != addr {
+			e := upspin.Endpoint{
+				Transport: upspin.Remote,
+				NetAddr:   addr,
+			}
+			ks, err := KeyServer(w.config, e)
+			if err == nil {
+				return ks.Put(u)
+			}
+		}
+	}
+	return w.KeyServer.Put(u)
 }
