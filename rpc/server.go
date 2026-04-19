@@ -194,7 +194,7 @@ func sendResponse(w http.ResponseWriter, resp pb.Message, err error) {
 	payload, err := pb.Marshal(resp)
 	if err != nil {
 		log.Error.Printf("error encoding response: %v", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
 	w.Write(payload)

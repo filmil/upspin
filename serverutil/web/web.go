@@ -212,7 +212,8 @@ func httpError(w http.ResponseWriter, err error) {
 	case ifError(w, err, errors.NotExist, http.StatusNotFound):
 	case ifError(w, err, errors.BrokenLink, http.StatusNotFound):
 	default:
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		log.Error.Printf("web: %v", err)
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 	}
 }
 
