@@ -2,7 +2,6 @@
 
 load("@rules_oci//oci:defs.bzl", "oci_image", "oci_image_index", "oci_push")
 load("@rules_pkg//:pkg.bzl", "pkg_tar")
-load(":transition.bzl", "multi_arch_image")
 
 # All binaries from //cmd/...
 BINARIES = [
@@ -32,17 +31,14 @@ oci_image(
     tars = [":binaries_tar"],
 )
 
-# This builds both linux_amd64 and linux_arm64 images.
-multi_arch_image(
-    name = "image_multi_arch",
-    image = ":image",
-)
-
-# This is an index built from the multi_arch_image outputs
 oci_image_index(
     name = "image_index",
     images = [
-        ":image_multi_arch",
+        ":image",
+    ],
+    platforms = [
+        "@rules_go//go/toolchain:linux_amd64",
+        "@rules_go//go/toolchain:linux_arm64",
     ],
 )
 
