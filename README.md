@@ -9,7 +9,7 @@
 
 **2026-04-18 update: Reviving Upspin source code**
 
-I am reviving the Upspin source code in this repository. The goal is to maintain the project, keep it building with modern tools (like Bazel), and provide a working environment for those who still find Upspin's concepts valuable.
+I am reviving the Upspin source code in this repository. The goal is to keep the project building with modern tools (like Bazel), and provide a working environment for those who still find Upspin's concepts valuable.
 
 ---
 
