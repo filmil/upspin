@@ -8,6 +8,7 @@ go_library(
         "errors_unix.go",
         "fs.go",
         "main.go",
+        "main_windows.go",
         "watch.go",
     ],
     importpath = "upspin.io/cmd/upspinfs",
