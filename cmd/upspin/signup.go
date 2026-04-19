@@ -24,9 +24,9 @@ import (
 func (s *State) signup(args ...string) {
 	const help = `
 Signup generates an Upspin configuration file and private/public key pair,
-stores them locally, and sends a signup request to the public Upspin key server
-at key.upspin.io. The server will respond by sending a confirmation email to
-the given email address (or "username").
+stores them locally, and sends a signup request to the Upspin key server
+for the user's domain (e.g., key.example.com). The server will respond by
+sending a confirmation email to the given email address (or "username").
 
 The email address becomes a username after successful signup but is never
 again used by Upspin to send or receive email. Therefore the email address
@@ -53,10 +53,9 @@ The -signuponly flag tells signup to skip the generation of the configuration
 file and keys and only send the signup request to the key server.
 `
 	fs := flag.NewFlagSet("signup", flag.ExitOnError)
-	defaultKeyServer := string(config.New().KeyEndpoint().NetAddr)
 	var (
 		force       = fs.Bool("force", false, "create a new user even if keys and config file exist")
-		keyServer   = fs.String("key", defaultKeyServer, "Key server `address`")
+		keyServer   = fs.String("key", "", "Key server `address` (default key.DOMAIN:443)")
 		dirServer   = fs.String("dir", "", "Directory server `address`")
 		storeServer = fs.String("store", "", "Store server `address`")
 		bothServer  = fs.String("server", "", "Store and Directory server `address` (if combined)")
@@ -67,6 +66,26 @@ file and keys and only send the signup request to the key server.
 	)
 
 	s.ParseFlags(fs, args, help, "[-config=<file>] signup -dir=<addr> -store=<addr> [flags] <username>\n       upspin [-config=<file>] signup -server=<addr> [flags] <username>")
+
+	// Check flags.
+	if fs.NArg() != 1 {
+		s.Failf("after flags parsed, expected 1 argument but saw %d", fs.NArg())
+		usageAndExit(fs)
+	}
+
+	// Parse user name.
+	uname, suffix, domain, err := user.Parse(upspin.UserName(fs.Arg(0)))
+	if err != nil {
+		s.Exitf("invalid user name %q: %v", fs.Arg(0), err)
+	}
+	if suffix != "" {
+		s.Exitf("invalid user name %q: name must not include a +suffix; for a suffixed user, use upspin user -put", fs.Arg(0))
+	}
+	userName := upspin.UserName(uname + "@" + domain)
+
+	if *keyServer == "" {
+		*keyServer = "key." + domain
+	}
 
 	// Determine config file location.
 	if !filepath.IsAbs(flags.Config) {
@@ -84,11 +103,6 @@ file and keys and only send the signup request to the key server.
 		return
 	}
 
-	// Check flags.
-	if fs.NArg() != 1 {
-		s.Failf("after flags parsed, expected 1 argument but saw %d", fs.NArg())
-		usageAndExit(fs)
-	}
 	if *bothServer != "" {
 		if *dirServer != "" || *storeServer != "" {
 			s.Failf("if -server provided -dir and -store must not be set")
@@ -116,16 +130,6 @@ file and keys and only send the signup request to the key server.
 		s.Exitf("error parsing -store=%q: %v", storeServer, err)
 	}
 
-	// Parse user name.
-	uname, suffix, domain, err := user.Parse(upspin.UserName(fs.Arg(0)))
-	if err != nil {
-		s.Exitf("invalid user name %q: %v", fs.Arg(0), err)
-	}
-	if suffix != "" {
-		s.Exitf("invalid user name %q: name must not include a +suffix; for a suffixed user, use upspin user -put", fs.Arg(0))
-	}
-
-	userName := upspin.UserName(uname + "@" + domain)
 	*secrets = subcmd.Tilde(*secrets)
 
 	// Verify if we have a config file.

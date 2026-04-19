@@ -194,9 +194,9 @@ type redirectionWrapper struct {
 }
 
 func (w *redirectionWrapper) Lookup(name upspin.UserName) (*upspin.User, error) {
-	_, domain, _, err := user.Parse(name)
-	if err == nil && domain == "domain.com" {
-		addr := upspin.NetAddr("key.domain.com:443")
+	_, _, domain, err := user.Parse(name)
+	if err == nil {
+		addr := upspin.NetAddr("key." + domain + ":443")
 		if w.Endpoint().NetAddr != addr {
 			e := upspin.Endpoint{
 				Transport: upspin.Remote,
@@ -212,9 +212,9 @@ func (w *redirectionWrapper) Lookup(name upspin.UserName) (*upspin.User, error) 
 }
 
 func (w *redirectionWrapper) Put(u *upspin.User) error {
-	_, domain, _, err := user.Parse(u.Name)
-	if err == nil && domain == "domain.com" {
-		addr := upspin.NetAddr("key.domain.com:443")
+	_, _, domain, err := user.Parse(u.Name)
+	if err == nil {
+		addr := upspin.NetAddr("key." + domain + ":443")
 		if w.Endpoint().NetAddr != addr {
 			e := upspin.Endpoint{
 				Transport: upspin.Remote,

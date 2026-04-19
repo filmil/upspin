@@ -54,6 +54,18 @@ func TestInitConfig(t *testing.T) {
 	testConfig(t, &expect, makeConfig(&expect))
 }
 
+func TestDynamicKeyServer(t *testing.T) {
+	const configuration = "username: user@example.com\nsecrets: none\n"
+	config, err := InitConfig(strings.NewReader(configuration))
+	if err != ErrNoFactotum {
+		t.Fatalf("expected ErrNoFactotum, got %v", err)
+	}
+	const expected = "remote,key.example.com:443"
+	if config.KeyEndpoint().String() != expected {
+		t.Errorf("got %v, want %v", config.KeyEndpoint().String(), expected)
+	}
+}
+
 func TestDefaults(t *testing.T) {
 	expect := expectations{
 		username:  "noone@nowhere.org",
