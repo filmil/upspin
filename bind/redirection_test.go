@@ -33,12 +33,11 @@ func TestRedirection(t *testing.T) {
 	// Since bind uses a global map, and other tests might have registered it,
 	// we use a trick: we'll just check if the returned KeyServer is our wrapper.
 
-	e := upspin.Endpoint{Transport: upspin.InProcess, NetAddr: "initial"}
+	e := upspin.Endpoint{Transport: upspin.Remote, NetAddr: "key.upspin.io:443"}
 	
 	// Register InProcess and Remote.
 	var lastLookup upspin.UserName
 	du := &interceptor{lastLookup: &lastLookup}
-	RegisterKeyServer(upspin.InProcess, du)
 	RegisterKeyServer(upspin.Remote, du)
 
 	ks, err := KeyServer(cfg, e)
