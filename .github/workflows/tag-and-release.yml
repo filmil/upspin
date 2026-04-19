@@ -85,7 +85,7 @@ jobs:
         with:
           tag: ${{ steps.tag_version.outputs.new_tag }}
           allowUpdates: true
-          artifacts: "${{ env.REPO_NAME }}-${{ env.VERSION }}.zip,${{ env.VERSION }}.tar.gz"
+          artifacts: "${{ env.REPO_NAME }}-${{ env.VERSION }}.zip,${{ env.VERSION }}.tar.gz,attestations/${{ env.VERSION }}.tar.gz.intoto.jsonl"
 
   release:
     needs: tag
