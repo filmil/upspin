@@ -9,6 +9,7 @@ BINARIES = [
     "//cmd/dirserver",
     "//cmd/frontend",
     "//cmd/keyserver",
+    "//cmd/local_keyserver",
     "//cmd/storeserver",
     "//cmd/upbox",
     "//cmd/upspin",
