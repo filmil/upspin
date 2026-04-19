@@ -9,17 +9,17 @@ import (
 
 type interceptor struct {
 	dummyKey
-	lastLookup upspin.UserName
+	lastLookup *upspin.UserName
 	addr       upspin.NetAddr
 }
 
 func (i *interceptor) Lookup(name upspin.UserName) (*upspin.User, error) {
-	i.lastLookup = name
+	*i.lastLookup = name
 	return &upspin.User{Name: name}, nil
 }
 
 func (i *interceptor) Dial(cc upspin.Config, e upspin.Endpoint) (upspin.Service, error) {
-	return &interceptor{addr: e.NetAddr}, nil
+	return &interceptor{addr: e.NetAddr, lastLookup: i.lastLookup}, nil
 }
 
 func (i *interceptor) Endpoint() upspin.Endpoint {
@@ -35,9 +35,11 @@ func TestRedirection(t *testing.T) {
 
 	e := upspin.Endpoint{Transport: upspin.InProcess, NetAddr: "initial"}
 	
-	// Register InProcess if not already there (TestSwitch does it).
-	du := &interceptor{}
+	// Register InProcess and Remote.
+	var lastLookup upspin.UserName
+	du := &interceptor{lastLookup: &lastLookup}
 	RegisterKeyServer(upspin.InProcess, du)
+	RegisterKeyServer(upspin.Remote, du)
 
 	ks, err := KeyServer(cfg, e)
 	if err != nil {
@@ -51,7 +53,15 @@ func TestRedirection(t *testing.T) {
 
 	// Test lookup of a regular user.
 	_, _ = wrapper.Lookup("user@example.com")
-	// This should go to the initial keyserver.
-	// We can't easily check 'du' because it was the dialer, and reachableService returns a new instance.
-	// But we can check that it DID NOT redirect to key.domain.com.
+	// This should redirect to key.example.com.
+	if lastLookup != "user@example.com" {
+		t.Errorf("Expected lookup for user@example.com, got %v", lastLookup)
+	}
+
+	// Test lookup of another domain.
+	lastLookup = ""
+	_, _ = wrapper.Lookup("foo@bar.com")
+	if lastLookup != "foo@bar.com" {
+		t.Errorf("Expected lookup for foo@bar.com, got %v", lastLookup)
+	}
 }

@@ -108,7 +108,8 @@ func FromFile(name string) (upspin.Config, error) {
 //
 // Any endpoints (keyserver, dirserver, storeserver) not set in the data for
 // the config will be set to the "unassigned" transport and an empty network
-// address, except keyserver which defaults to "remote,key.upspin.io:443".
+// address, except keyserver which defaults to key.DOMAIN:443 where DOMAIN is
+// the user's domain.
 // If an endpoint is specified without a transport it is assumed to be
 // the address component of a remote endpoint.
 // If a remote endpoint is specified without a port in its address component
@@ -132,7 +133,7 @@ func InitConfig(r io.Reader) (upspin.Config, error) {
 	vals := map[string]string{
 		username:    string(defaultUserName),
 		packing:     defaultPacking.String(),
-		keyserver:   defaultKeyEndpoint.String(),
+		keyserver:   "",
 		dirserver:   "",
 		storeserver: "",
 		cache:       "",
@@ -171,6 +172,16 @@ func InitConfig(r io.Reader) (upspin.Config, error) {
 		return nil, errors.E(op, err)
 	}
 	cfg = SetUserName(cfg, username)
+
+	// If no keyserver was specified, default to key.DOMAIN.
+	if vals[keyserver] == "" {
+		_, _, domain, err := user.Parse(username)
+		if err == nil {
+			vals[keyserver] = "remote,key." + domain + ":443"
+		} else {
+			vals[keyserver] = defaultKeyEndpoint.String()
+		}
+	}
 
 	packer := pack.LookupByName(vals[packing])
 	if packer == nil {
