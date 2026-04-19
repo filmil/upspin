@@ -61,13 +61,21 @@ jobs:
           PREFIX="${{ env.REPO_NAME }}-${VERSION_STR#v}/"
           git archive --format=tar.gz --prefix="$PREFIX" -o "${{ env.VERSION }}.tar.gz" HEAD
       - name: Generate artifact attestation for source archive (zip)
+        id: attest_zip
         uses: actions/attest-build-provenance@v2
         with:
           subject-path: "${{ env.REPO_NAME }}-${{ env.VERSION }}.zip"
+      - name: Extract zip attestation into intoto.jsonl
+        run: |
+          cat ${{ steps.attest_zip.outputs.bundle-path }} | jq --compact-output > "${{ env.REPO_NAME }}-${{ env.VERSION }}.zip.intoto.jsonl"
       - name: Generate artifact attestation for source archive (tar.gz)
+        id: attest_tar
         uses: actions/attest-build-provenance@v2
         with:
           subject-path: "${{ env.VERSION }}.tar.gz"
+      - name: Extract tar.gz attestation into intoto.jsonl
+        run: |
+          cat ${{ steps.attest_tar.outputs.bundle-path }} | jq --compact-output > "${{ env.VERSION }}.tar.gz.intoto.jsonl"
       - name: "Upload source archives"
         uses: ncipollo/release-action@v1
         env:
@@ -75,7 +83,7 @@ jobs:
         with:
           tag: ${{ steps.tag_version.outputs.new_tag }}
           allowUpdates: true
-          artifacts: "${{ env.REPO_NAME }}-${{ env.VERSION }}.zip,${{ env.VERSION }}.tar.gz"
+          artifacts: "${{ env.REPO_NAME }}-${{ env.VERSION }}.zip,${{ env.REPO_NAME }}-${{ env.VERSION }}.zip.intoto.jsonl,${{ env.VERSION }}.tar.gz,${{ env.VERSION }}.tar.gz.intoto.jsonl"
 
   release:
     needs: tag
@@ -123,16 +131,20 @@ jobs:
           release_branches: main
           dry_run: true
       - name: Generate artifact attestation for compiled binaries
+        id: attest_bin
         uses: actions/attest-build-provenance@v2
         with:
           subject-path: "upspin-binaries-${{ matrix.os }}-${{ matrix.arch }}.zip"
+      - name: Extract binary attestation into intoto.jsonl
+        run: |
+          cat ${{ steps.attest_bin.outputs.bundle-path }} | jq --compact-output > "upspin-binaries-${{ matrix.os }}-${{ matrix.arch }}.zip.intoto.jsonl"
       - name: "Publish ${{ matrix.os }}_${{ matrix.arch }}"
         uses: ncipollo/release-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           allowUpdates: true
-          artifacts: "upspin-binaries-${{ matrix.os }}-${{ matrix.arch }}.zip"
+          artifacts: "upspin-binaries-${{ matrix.os }}-${{ matrix.arch }}.zip,upspin-binaries-${{ matrix.os }}-${{ matrix.arch }}.zip.intoto.jsonl"
           tag: ${{ steps.tag_version.outputs.previous_tag }}
 
   publish-my-registry:
