@@ -80,6 +80,26 @@ to receive critical information about the project.
 Use the [Upspin mailing list](https://groups.google.com/forum/#!forum/upspin)
 for discussion about Upspin use and development.
 
+## Containers
+
+The project provides a minimal container image containing all Upspin binaries.
+
+### Building the image
+
+To build the container image locally:
+
+```bash
+bazel build //containers:image
+```
+
+### Pushing the image
+
+To push the image to Docker Hub (requires being logged in):
+
+```bash
+bazel run //containers:push
+```
+
 
 ### Code of Conduct
 

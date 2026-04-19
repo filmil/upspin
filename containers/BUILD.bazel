@@ -1,0 +1,38 @@
+# SPDX-License-Identifier: Apache-2.0
+
+load("@rules_pkg//:pkg.bzl", "pkg_tar")
+load("@rules_oci//oci:defs.bzl", "oci_image", "oci_push")
+
+# All binaries from //cmd/...
+BINARIES = [
+    "//cmd/cacheserver",
+    "//cmd/dirserver",
+    "//cmd/frontend",
+    "//cmd/keyserver",
+    "//cmd/storeserver",
+    "//cmd/upbox",
+    "//cmd/upspin",
+    "//cmd/upspin-audit",
+    "//cmd/upspin-setupstorage",
+    "//cmd/upspinfs",
+    "//cmd/upspinserver",
+]
+
+pkg_tar(
+    name = "binaries_tar",
+    srcs = BINARIES,
+    package_dir = "/usr/local/bin",
+)
+
+oci_image(
+    name = "image",
+    base = "@distroless_static",
+    tars = [":binaries_tar"],
+)
+
+oci_push(
+    name = "push",
+    image = ":image",
+    repository = "index.docker.io/filipfilmar/upspin",
+    remote_tags = ["latest"],
+)

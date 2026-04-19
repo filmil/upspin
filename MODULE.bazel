@@ -8,6 +8,17 @@ bazel_dep(name = "gazelle", version = "0.50.0")
 bazel_dep(name = "protobuf", version = "34.1")
 bazel_dep(name = "rules_proto", version = "7.1.0")
 bazel_dep(name = "rules_android", version = "0.7.1")
+bazel_dep(name = "rules_oci", version = "2.2.2")
+bazel_dep(name = "rules_pkg", version = "1.0.1")
+
+oci = use_extension("@rules_oci//oci:extensions.bzl", "oci")
+oci.pull(
+    name = "distroless_static",
+    digest = "sha256:47b2d72ff90843eb8a768b5c2f89b40741843b639d065b9b937b07cd59b479c6",
+    image = "gcr.io/distroless/static",
+    platforms = ["linux/amd64"],
+)
+use_repo(oci, "distroless_static", "distroless_static_linux_amd64")
 
 go_sdk = use_extension("@rules_go//go:extensions.bzl", "go_sdk")
 go_sdk.download(version = "1.26.2")
