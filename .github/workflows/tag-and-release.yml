@@ -97,7 +97,7 @@ jobs:
     strategy:
       matrix:
         arch: ["amd64", "arm64"]
-        os: ["linux", "darwin", "windows"]
+        os: ["linux", "darwin"] # "windows" commented out due to build issues
     steps:
       - name: Setup bazel
         uses: bazel-contrib/setup-bazel@0.8.5
