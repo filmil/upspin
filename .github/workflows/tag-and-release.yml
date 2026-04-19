@@ -65,19 +65,9 @@ jobs:
         with:
           subject-path: "${{ env.REPO_NAME }}-${{ env.VERSION }}.zip"
       - name: Generate artifact attestation for source archive (tar.gz)
-        id: attest_tar
         uses: actions/attest-build-provenance@v2
         with:
           subject-path: "${{ env.VERSION }}.tar.gz"
-      - name: "Prepare local attestation for BCR publisher"
-        run: |
-          mkdir -p attestations
-          cp "${{ steps.attest_tar.outputs.bundle-path }}" "attestations/${{ env.VERSION }}.tar.gz.intoto.jsonl"
-      - name: "Upload attestations artifact"
-        uses: actions/upload-artifact@v4
-        with:
-          name: attestations
-          path: attestations/
       - name: "Upload source archives"
         uses: ncipollo/release-action@v1
         env:
@@ -85,7 +75,7 @@ jobs:
         with:
           tag: ${{ steps.tag_version.outputs.new_tag }}
           allowUpdates: true
-          artifacts: "${{ env.REPO_NAME }}-${{ env.VERSION }}.zip,${{ env.VERSION }}.tar.gz,attestations/${{ env.VERSION }}.tar.gz.intoto.jsonl"
+          artifacts: "${{ env.REPO_NAME }}-${{ env.VERSION }}.zip,${{ env.VERSION }}.tar.gz"
 
   release:
     needs: tag
