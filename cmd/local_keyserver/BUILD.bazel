@@ -1,0 +1,24 @@
+load("@rules_go//go:def.bzl", "go_binary", "go_library")
+
+go_library(
+    name = "local_keyserver_lib",
+    srcs = ["main.go"],
+    importpath = "upspin.io/cmd/local_keyserver",
+    visibility = ["//visibility:private"],
+    deps = [
+        "//cloud/https",
+        "//config",
+        "//flags",
+        "//key/inprocess",
+        "//key/transports",
+        "//log",
+        "//rpc/keyserver",
+        "//upspin",
+    ],
+)
+
+go_binary(
+    name = "local_keyserver",
+    embed = [":local_keyserver_lib"],
+    visibility = ["//visibility:public"],
+)

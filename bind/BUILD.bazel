@@ -14,7 +14,10 @@ go_library(
 
 go_test(
     name = "bind_test",
-    srcs = ["bind_test.go"],
+    srcs = [
+        "bind_test.go",
+        "redirection_test.go",
+    ],
     embed = [":bind"],
     deps = [
         "//test/testfixtures",

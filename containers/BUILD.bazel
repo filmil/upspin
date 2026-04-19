@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
-load("@rules_pkg//:pkg.bzl", "pkg_tar")
 load("@rules_oci//oci:defs.bzl", "oci_image", "oci_push")
+load("@rules_pkg//:pkg.bzl", "pkg_tar")
 
 # All binaries from //cmd/...
 BINARIES = [
@@ -33,6 +33,6 @@ oci_image(
 oci_push(
     name = "push",
     image = ":image",
-    repository = "index.docker.io/filipfilmar/upspin",
     remote_tags = ["latest"],
+    repository = "index.docker.io/filipfilmar/upspin",
 )
