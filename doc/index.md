@@ -1,6 +1,6 @@
 # Upspin
 
-<img src="images/augie-transparent.png" width="180" height="218" alt="Home"/>
+<img src="images/augie-transparent.png" width="180" height="218" alt="Upspin mascot Augie"/>
 
 When did you last...
 

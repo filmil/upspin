@@ -21,13 +21,13 @@ td {
 }
 {{end}}
 {{define "before-content"}}
-	<div class="menu">
+	<nav class="menu" aria-label="Documentation navigation">
 		{{if ne .FileName "index.md"}}
 			{{if ne .FileName "doc.md"}}
 				<a href="/doc/">Documentation</a>
 			{{end}}
 			<a href="/">Upspin</a>
 		{{end}}
-	</div>
+	</nav>
 {{end}}
 {{define "content"}}{{.Content}}{{end}}

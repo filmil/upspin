@@ -1,3 +1,9 @@
 ## 2024-04-18 - Added Proper Document Structure and Language Attribute to Templates
 **Learning:** Found a base template (`doc/templates/base.tmpl`) that was missing `<html lang="en">`, `<head>`, and `<body>` tags. This creates invalid HTML which can degrade the experience for assistive technologies like screen readers, which rely on the `lang` attribute for proper pronunciation and correct document structure for semantic navigation.
 **Action:** Always ensure foundational layout components/templates contain standard HTML structure and the correct `lang` attribute in future implementations.
+## 2026-04-20 - Replaced unhelpful image alt text and generic divs with semantic navs
+**Learning:** Found an image () with a non-descriptive `alt="Home"` (which is misleading for assistive tech, as it's not a link) and a navigation menu () using a generic `<div class="menu">`. This provides poor context and structural information for screen readers.
+**Action:** Ensure non-link images use descriptive `alt` text explaining the image content itself (e.g. "Upspin mascot Augie"), and use semantic HTML5 elements like `<nav>` with appropriate `aria-label` attributes for structural landmarks.
+## 2024-04-18 - Replaced unhelpful image alt text and generic divs with semantic navs
+**Learning:** Found an image (`doc/index.md`) with a non-descriptive `alt="Home"` (which is misleading for assistive tech, as it's not a link) and a navigation menu (`doc/templates/doc.tmpl`) using a generic `<div class="menu">`. This provides poor context and structural information for screen readers.
+**Action:** Ensure non-link images use descriptive `alt` text explaining the image content itself (e.g. "Upspin mascot Augie"), and use semantic HTML5 elements like `<nav>` with appropriate `aria-label` attributes for structural landmarks.
