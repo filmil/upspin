@@ -6,7 +6,6 @@
 package errors
 
 import (
-	"bytes"
 	"encoding"
 	"encoding/binary"
 	"fmt"
@@ -127,6 +126,7 @@ func (k Kind) String() string {
 // only the last one is recorded.
 //
 // The types are:
+//
 //	upspin.PathName
 //		The Upspin path name of the item being accessed.
 //	upspin.UserName
@@ -150,7 +150,6 @@ func (k Kind) String() string {
 //
 // If Kind is not specified or Other, we set it to the Kind of
 // the underlying error.
-//
 func E(args ...interface{}) error {
 	if len(args) == 0 {
 		panic("call to errors.E with no arguments")
@@ -226,7 +225,7 @@ func E(args ...interface{}) error {
 }
 
 // pad appends str to the buffer if the buffer already has some data.
-func pad(b *bytes.Buffer, str string) {
+func pad(b *strings.Builder, str string) {
 	if b.Len() == 0 {
 		return
 	}
@@ -234,7 +233,7 @@ func pad(b *bytes.Buffer, str string) {
 }
 
 func (e *Error) Error() string {
-	b := new(bytes.Buffer)
+	b := new(strings.Builder)
 	e.printStack(b)
 	if e.Op != "" {
 		pad(b, ": ")
@@ -445,7 +444,9 @@ func getBytes(b []byte) (data, remaining []byte) {
 // the first are ignored.
 //
 // For example,
+//
 //	Match(errors.E(upspin.UserName("joe@schmoe.com"), errors.Permission), err)
+//
 // tests whether err is an Error with Kind=Permission and User=joe@schmoe.com.
 func Match(err1, err2 error) bool {
 	e1, ok := err1.(*Error)

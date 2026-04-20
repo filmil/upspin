@@ -2,11 +2,12 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+//go:build !debug
 // +build !debug
 
 package errors
 
-import "bytes"
+import "strings"
 
 // These are stubs that disable stack collecting/printing
 // when the debug build tag is not set.
@@ -14,5 +15,5 @@ import "bytes"
 
 type stack struct{}
 
-func (e *Error) populateStack()           {}
-func (e *Error) printStack(*bytes.Buffer) {}
+func (e *Error) populateStack()              {}
+func (e *Error) printStack(*strings.Builder) {}

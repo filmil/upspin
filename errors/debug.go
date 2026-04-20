@@ -2,12 +2,12 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+//go:build debug
 // +build debug
 
 package errors // import "upspin.io/errors"
 
 import (
-	"bytes"
 	"fmt"
 	"runtime"
 	"strings"
@@ -71,7 +71,7 @@ func frame(callers []uintptr, n int) *runtime.Frame {
 
 // printStack formats and prints the stack for this Error to the given buffer.
 // It should be called from the Error's Error method.
-func (e *Error) printStack(b *bytes.Buffer) {
+func (e *Error) printStack(b *strings.Builder) {
 	printCallers := callers()
 
 	// Iterate backward through e.callers (the last in the stack is the
