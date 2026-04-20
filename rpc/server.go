@@ -160,6 +160,8 @@ func (s *serverImpl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		var err error
 		session, err = s.SessionForRequest(w, r)
 		if err != nil {
+			log.Error.Printf("rpc ServeHTTP session error: %v", err)
+			// Send the original error text as required by some RPC clients expecting it via the body
 			http.Error(w, err.Error(), http.StatusUnauthorized)
 			return
 		}
@@ -168,7 +170,8 @@ func (s *serverImpl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(r.Body)
 	r.Body.Close()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		log.Error.Printf("rpc ServeHTTP read body error: %v", err)
+		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 		return
 	}
 
@@ -194,7 +197,7 @@ func sendResponse(w http.ResponseWriter, resp pb.Message, err error) {
 	payload, err := pb.Marshal(resp)
 	if err != nil {
 		log.Error.Printf("error encoding response: %v", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
 	w.Write(payload)

@@ -317,7 +317,8 @@ func (h *reloadHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		})
 		if err != nil {
 			h.mu.Unlock()
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			log.Printf("serverutil/frontend reload handler walk error: %v", err)
+			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 			return
 		}
 	}
@@ -326,7 +327,8 @@ func (h *reloadHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.handler, err = h.load()
 		if err != nil {
 			h.mu.Unlock()
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			log.Printf("serverutil/frontend reload handler load error: %v", err)
+			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 			return
 		}
 	}

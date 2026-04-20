@@ -236,12 +236,14 @@ func (h *setupHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	files := map[string][]byte{}
 	if err := json.NewDecoder(r.Body).Decode(&files); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		log.Error.Printf("setupserver JSON decode error: %v", err)
+		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 		return
 	}
 
 	if err := os.MkdirAll(*cfgPath, 0700); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		log.Error.Printf("setupserver mkdir error: %v", err)
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
 
@@ -253,14 +255,16 @@ func (h *setupHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		err := os.WriteFile(filepath.Join(*cfgPath, name), body, 0600)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			log.Error.Printf("setupserver write error: %v", err)
+			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 			os.RemoveAll(*cfgPath)
 			return
 		}
 	}
 	_, cfg, perm, err := initServer(setupServer)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		log.Error.Printf("setupserver initServer error: %v", err)
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
 	fmt.Fprintf(w, "OK")
