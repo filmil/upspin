@@ -1,0 +1,11 @@
+--- a/test/integration_test.go
++++ b/test/integration_test.go
+@@ -385,7 +385,7 @@
+	env, err := testenv.New(&setup)
+	if errors.Is(errors.NotExist, err) && setup.Kind == "remote" {
+		t.Log(err)
+-		t.Fatal(remoteTestMessage)
++		t.Skip(remoteTestMessage)
+	}
+	if err != nil {
+		t.Fatal(err)
