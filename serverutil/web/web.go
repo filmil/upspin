@@ -64,7 +64,8 @@ func (s *web) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	urlName := upspin.PathName(strings.TrimPrefix(r.URL.Path, "/"))
 	p, err := path.Parse(urlName)
 	if err != nil {
-		http.Error(w, "Parse: "+err.Error(), http.StatusBadRequest)
+		log.Error.Printf("Parse path error: %v", err)
+		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 		return
 	}
 
@@ -212,7 +213,8 @@ func httpError(w http.ResponseWriter, err error) {
 	case ifError(w, err, errors.NotExist, http.StatusNotFound):
 	case ifError(w, err, errors.BrokenLink, http.StatusNotFound):
 	default:
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		log.Error.Printf("Internal server error: %v", err)
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 	}
 }
 
