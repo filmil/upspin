@@ -10,11 +10,13 @@
 I am reviving the Upspin source code in this repository. The goal is to keep the project building with modern tools (like [bazel](https://bazel.build)), and provide a working environment for those who still find Upspin's concepts valuable.
 
 At the moment, the modified upspin code works for my upspin deployment, I'm able to host my files as usual. 
-If you are interested to try out the revival binaries, I invite you to give it a... upspin.
+If you are interested to try out the revival binaries, I invite you to give it a... upspin. The releases have been started from
+an arbitrary version 42.0.0.
 
 The code has been modified from its fork point as follows:
 * Added `local_keyserver` which can be used to host a keyserver at `key.yourdomain.com`, and modified the libraries to look up keys for `youruser@yourdomain.com` on `key.yourdomain.com` instead of `key.upspin.io`. The keyserver is read-only and hosts from a static
 key file. This is not intended for new users, but can be used if you already have upspin keys you want to re-activate.
+  * Download the latest release (43.0.2 or later) for local keyserver support.
 * Added a release process based on GitHub workflows, replacing the custom build infra for upsping which is no longer operational.
 * Moved the build system to `bazel` so that I can reuse the canned rules to manage software lifecycle.
 * Revived `upspinserver-gdrive` at https://github.com/filmil/upspin-gdrive, by updating the OAuth2 flow and adding build and release infra.
