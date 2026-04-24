@@ -9,6 +9,9 @@
 
 I am reviving the Upspin source code in this repository. The goal is to keep the project building with modern tools (like [bazel](https://bazel.build)), and provide a working environment for those who still find Upspin's concepts valuable.
 
+At the moment, the modified upspin code works for my upspin deployment. If you are interested in trying out the revival
+binaries, I invite you to give it a... upspin.
+
 The code has been modified from its fork point as follows:
 * Added `local_keyserver` which can be used to host a keyserver at `key.yourdomain.com`, and modified the libraries to look up keys for `youruser@yourdomain.com` on `key.yourdomain.com` instead of `key.upspin.io`. The keyserver is read-only and hosts from a static
 key file. This is not intended for new users, but can be used if you already have upspin keys you want to re-activate.
