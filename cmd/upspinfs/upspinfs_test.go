@@ -165,6 +165,7 @@ func TestMain(m *testing.M) {
 }
 
 func mkTestDir(t *testing.T, name string) string {
+	t.Helper()
 	testDir := filepath.Join(testConfig.root, name)
 	if err := os.Mkdir(testDir, perm); err != nil {
 		fatal(t, err)
@@ -173,6 +174,7 @@ func mkTestDir(t *testing.T, name string) string {
 }
 
 func randomBytes(t *testing.T, len int) []byte {
+	t.Helper()
 	buf := make([]byte, len)
 	if _, err := rand.Read(buf); err != nil {
 		fatal(t, err)
@@ -181,6 +183,7 @@ func randomBytes(t *testing.T, len int) []byte {
 }
 
 func writeFile(t *testing.T, fn string, buf []byte) *os.File {
+	t.Helper()
 	f, err := os.OpenFile(fn, os.O_CREATE|os.O_WRONLY, perm)
 	if err != nil {
 		fatal(t, err)
@@ -198,12 +201,14 @@ func writeFile(t *testing.T, fn string, buf []byte) *os.File {
 }
 
 func truncateFile(t *testing.T, fn string, size int64) {
+	t.Helper()
 	if err := os.Truncate(fn, size); err != nil {
 		fatal(t, err)
 	}
 }
 
 func readAtAndCheckContentsOrDie(t *testing.T, file *os.File, offset int64, expected []byte) {
+	t.Helper()
 	err := readAtAndCheckContents(file, offset, expected)
 	if err != nil {
 		fatal(t, err)
@@ -228,6 +233,7 @@ func readAtAndCheckContents(file *os.File, offset int64, expected []byte) error 
 }
 
 func openReadAndCheckContentsOrDie(t *testing.T, fn string, expected []byte) {
+	t.Helper()
 	err := openReadAndCheckContents(fn, expected)
 	if err != nil {
 		fatal(t, err)
@@ -257,6 +263,7 @@ func openReadAndCheckContents(fn string, expected []byte) error {
 }
 
 func mkFile(t *testing.T, fn string, buf []byte) {
+	t.Helper()
 	f := writeFile(t, fn, buf)
 	if err := f.Close(); err != nil {
 		fatal(t, err)
@@ -264,12 +271,15 @@ func mkFile(t *testing.T, fn string, buf []byte) {
 }
 
 func mkDir(t *testing.T, fn string) {
+	t.Helper()
+	t.Helper()
 	if err := os.Mkdir(fn, perm); err != nil {
 		fatal(t, err)
 	}
 }
 
 func remove(t *testing.T, fn string) {
+	t.Helper()
 	if err := os.Remove(fn); err != nil {
 		fatal(t, err)
 	}
@@ -277,6 +287,7 @@ func remove(t *testing.T, fn string) {
 }
 
 func notExist(t *testing.T, fn, event string) {
+	t.Helper()
 	if _, err := os.Stat(fn); err == nil {
 		fatalf(t, "%s: should not exist after %s", fn, event)
 	}
@@ -768,12 +779,14 @@ func bytesUsed(t *testing.T, dir string) int64 {
 }
 
 func fatal(t *testing.T, args ...interface{}) {
+	t.Helper()
 	t.Log(fmt.Sprintln(args...))
 	t.Log(string(rtdebug.Stack()))
 	t.FailNow()
 }
 
 func fatalf(t *testing.T, format string, args ...interface{}) {
+	t.Helper()
 	t.Log(fmt.Sprintf(format, args...))
 	t.Log(string(rtdebug.Stack()))
 	t.FailNow()
