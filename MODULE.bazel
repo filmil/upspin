@@ -38,6 +38,7 @@ use_repo(
     "com_github_presotto_fuse",
     "com_github_russross_blackfriday",
     "in_gopkg_yaml_v2",
+    "org_golang_google_protobuf",
     "org_golang_x_crypto",
     "org_golang_x_net",
     "org_golang_x_text",
