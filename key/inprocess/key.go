@@ -24,12 +24,16 @@ func New() upspin.KeyServer {
 }
 
 func NewRO(r io.Reader) (upspin.KeyServer, error) {
+	return NewRW(r, true)
+}
+
+func NewRW(r io.Reader, readOnly bool) (upspin.KeyServer, error) {
 	s := &server{db: &database{
 		users: make(map[upspin.UserName]*upspin.User),
 	},
-		readOnly: true,
+		readOnly: readOnly,
 	}
-	if err := s.fill(r); err != nil {
+	if err := s.Fill(r); err != nil {
 		return nil, err
 	}
 	return s, nil
@@ -106,6 +110,17 @@ func (s *server) Put(u *upspin.User) error {
 	return nil
 }
 
+// Users returns all the users in the database.
+func (s *server) Users() ([]upspin.User, error) {
+	s.db.mu.RLock()
+	defer s.db.mu.RUnlock()
+	users := make([]upspin.User, 0, len(s.db.users))
+	for _, u := range s.db.users {
+		users = append(users, *dup(u))
+	}
+	return users, nil
+}
+
 // Endpoint implements upspin.server.
 func (s *server) Endpoint() upspin.Endpoint {
 	return upspin.Endpoint{
@@ -139,10 +154,12 @@ type KeyData struct {
 	Users []upspin.User
 }
 
-func (s *server) fill(r io.Reader) error {
+// Fill adds the user key data from the reader to the server.
+func (s *server) Fill(r io.Reader) error {
+	readOnly := s.readOnly
 	s.readOnly = false // Temporarily.
 	defer func() {
-		s.readOnly = true
+		s.readOnly = readOnly
 	}()
 
 	j := json.NewDecoder(r)
@@ -152,8 +169,12 @@ func (s *server) fill(r io.Reader) error {
 	}
 	for _, d := range k.Users {
 		if err := s.Put(&d); err != nil {
-			return fmt.Errorf("while filling readonly keyserver: %w", err)
+			return fmt.Errorf("while filling keyserver: %w", err)
 		}
 	}
 	return nil
+}
+
+func (s *server) fill(r io.Reader) error {
+	return s.Fill(r)
 }
