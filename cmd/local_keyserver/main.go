@@ -46,19 +46,27 @@ func main() {
 	f.Close()
 
 	if isWritable {
-		// Load the out file as an overlay if it exists.
-		f, err := os.Open(*outFile)
-		if err == nil {
+		// Verify we can write to the output file (fail fast).
+		outF, err := os.OpenFile(*outFile, os.O_CREATE|os.O_RDWR, 0600)
+		if err != nil {
+			log.Fatalf("cannot access or create out file %q: %v", *outFile, err)
+		}
+		
+		// Load the out file as an overlay if it contains data.
+		stat, err := outF.Stat()
+		if err != nil {
+			log.Fatalf("cannot stat out file %q: %v", *outFile, err)
+		}
+		
+		if stat.Size() > 0 {
 			type filler interface {
 				Fill(io.Reader) error
 			}
-			if err := key.(filler).Fill(f); err != nil {
-				log.Fatalf("loading %s: %v", *outFile, err)
+			if err := key.(filler).Fill(outF); err != nil {
+				log.Fatalf("loading overlay from %s: %v", *outFile, err)
 			}
-			f.Close()
-		} else if !os.IsNotExist(err) {
-			log.Fatal(err)
 		}
+		outF.Close()
 
 		key = &persistentServer{
 			KeyServer: key,
