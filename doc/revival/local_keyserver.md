@@ -12,20 +12,10 @@ local_keyserver -json=/path/to/keys.json -http=:8080
 
 ### Write Support
 
-By default, the server is read-only. To enable updates (the `Put` operation), use the `-writable` flag.
+By default, the server is read-only and never writes to the initial `-json` file. To enable updates (the `Put` operation) and persist changes, you must specify an `-out` file. 
 
 ```bash
-local_keyserver -json=/path/to/keys.json -writable -http=:8080
-```
-
-#### Persisting Changes
-
-If `-writable` is specified without an `-out` flag, any updates are written back to the file specified by `-json`.
-
-To keep the initial configuration separate from new updates, use the `-out` flag:
-
-```bash
-local_keyserver -json=/path/to/keys.json -writable -out=updates.json -http=:8080
+local_keyserver -json=/path/to/keys.json -out=updates.json -http=:8080
 ```
 
 When `-out` is specified:
