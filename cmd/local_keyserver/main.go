@@ -25,8 +25,7 @@ import (
 
 var (
 	jsonFile = flag.String("json", "", "JSON file containing user keys")
-	writable = flag.Bool("writable", false, "allow updates to the user keys")
-	outFile  = flag.String("out", "", "JSON file where new keys are written (defaults to -json)")
+	outFile  = flag.String("out", "", "JSON file where new keys are written (makes server writable)")
 )
 
 func main() {
@@ -34,23 +33,20 @@ func main() {
 	if *jsonFile == "" {
 		log.Fatalf("must specify -json file")
 	}
-	out := *outFile
-	if out == "" {
-		out = *jsonFile
-	}
+	isWritable := *outFile != ""
 
 	f, err := os.Open(*jsonFile)
 	if err != nil {
 		log.Fatal(err)
 	}
-	key, err := inprocess.NewRW(f, !*writable)
+	key, err := inprocess.NewRW(f, !isWritable)
 	if err != nil {
 		log.Fatal(err)
 	}
 	f.Close()
 
-	if *writable && *outFile != "" {
-		// If a separate out file is specified, load it as an overlay if it exists.
+	if isWritable {
+		// Load the out file as an overlay if it exists.
 		f, err := os.Open(*outFile)
 		if err == nil {
 			type filler interface {
@@ -63,12 +59,10 @@ func main() {
 		} else if !os.IsNotExist(err) {
 			log.Fatal(err)
 		}
-	}
 
-	if *writable {
 		key = &persistentServer{
 			KeyServer: key,
-			file:      out,
+			file:      *outFile,
 		}
 	}
 
