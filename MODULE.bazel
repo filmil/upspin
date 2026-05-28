@@ -4,12 +4,12 @@ module(
 )
 
 bazel_dep(name = "rules_go", version = "0.60.0")
-bazel_dep(name = "gazelle", version = "0.50.0")
-bazel_dep(name = "protobuf", version = "34.1")
+bazel_dep(name = "gazelle", version = "0.51.0")
+bazel_dep(name = "protobuf", version = "35.0")
 bazel_dep(name = "rules_proto", version = "7.1.0")
-bazel_dep(name = "rules_android", version = "0.7.1")
+bazel_dep(name = "rules_android", version = "0.7.2")
 bazel_dep(name = "rules_oci", version = "2.3.0")
-bazel_dep(name = "rules_pkg", version = "1.0.1")
+bazel_dep(name = "rules_pkg", version = "1.2.0")
 
 oci = use_extension("@rules_oci//oci:extensions.bzl", "oci")
 oci.pull(
