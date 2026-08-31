@@ -204,3 +204,12 @@ jobs:
     secrets:
       BCR_PUBLISH_TOKEN: ${{ secrets.BCR_PUBLISH_TOKEN }}
 
+  publish-container:
+    needs: tag
+    uses: ./.github/workflows/publish-container.yml
+    with:
+      tag_name: ${{ needs.tag.outputs.tag_name }}
+    secrets:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+

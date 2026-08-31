@@ -42,9 +42,35 @@ oci_image_index(
     ],
 )
 
+# Remote tags for :push, derived from the release tag.
+#
+#   bazel run //containers:push --embed_label=v43.0.3
+#
+# publishes exactly one tag, `43.0.3`. The leading `v` of the git tag is
+# stripped so the container carries a bare semver, matching the convention used
+# for the binaries published alongside each release. No floating `latest` tag is
+# published: every image is addressable by an explicit version, so a deployment
+# that pins one always names what it actually runs.
+#
+# Without --embed_label the placeholder `0.0.0` is emitted rather than failing,
+# so that `bazel build //...` stays green and this action stays cacheable, as
+# recommended in rules_oci's oci_push docs. CI always stamps, and
+# .github/workflows/publish-container.yml rejects a non-semver tag before it
+# reaches this rule, so `0.0.0` can never reach the registry from a release.
+genrule(
+    name = "remote_tags",
+    outs = ["remote_tags.txt"],
+    cmd = """
+version=$$(sed -n 's/^BUILD_EMBED_LABEL //p' bazel-out/stable-status.txt)
+version=$${version#v}
+printf '%s\\n' "$${version:-0.0.0}" > $@
+""",
+    stamp = 1,
+)
+
 oci_push(
     name = "push",
     image = ":image_index",
-    remote_tags = ["latest"],
+    remote_tags = ":remote_tags",
     repository = "index.docker.io/filipfilmar/upspin",
 )
