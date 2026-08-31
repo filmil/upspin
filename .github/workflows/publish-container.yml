@@ -1,0 +1,80 @@
+name: "Publish multi-arch container"
+
+on:
+  workflow_call:
+    secrets:
+      DOCKERHUB_USERNAME:
+        required: true
+        description: 'Docker Hub user to publish as.'
+      DOCKERHUB_TOKEN:
+        required: true
+        description: 'Docker Hub access token with write scope.'
+    inputs:
+      tag_name:
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: "Release tag to build and publish, e.g. v43.0.3"
+        required: true
+        type: string
+
+jobs:
+  publish-container:
+    name: "Push filipfilmar/upspin"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Setup bazel
+        uses: bazel-contrib/setup-bazel@0.8.5
+        with:
+          bazelisk-cache: true
+          disk-cache: ${{ github.workflow }}
+          repository-cache: true
+      # Build the source as of the tag, so that re-running this workflow for an
+      # older release reproduces that release rather than current main.
+      - name: Checkout ${{ inputs.tag_name }}
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag_name }}
+      - name: Cache
+        uses: actions/cache@v4
+        with:
+          path: "~/.cache/bazel"
+          key: ${{ runner.os }}-container-bazel-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-container-bazel-
+      # crane, which rules_oci invokes to push, reads ~/.docker/config.json.
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      # Guard the tag before anything is pushed. //containers:remote_tags falls
+      # back to the placeholder 0.0.0 when unstamped; refusing a non-semver tag
+      # here means that placeholder can never be published by mistake.
+      - name: Validate tag is an explicit version
+        env:
+          TAG_NAME: ${{ inputs.tag_name }}
+        run: |
+          set -euo pipefail
+          if ! printf '%s' "$TAG_NAME" | grep -Eq '^v?[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::'$TAG_NAME' is not an explicit version (expected e.g. v43.0.3)."
+            exit 1
+          fi
+      # --embed_label drives //containers:remote_tags, which emits the bare
+      # semver. It must precede the target: it is a bazel flag, not an argument
+      # to the push script.
+      - name: "Push ${{ inputs.tag_name }}"
+        env:
+          TAG_NAME: ${{ inputs.tag_name }}
+        run: |
+          set -euo pipefail
+          bazel run --embed_label="$TAG_NAME" //containers:push
+      - name: Summary
+        env:
+          TAG_NAME: ${{ inputs.tag_name }}
+        run: |
+          echo "Pushed \`filipfilmar/upspin:${TAG_NAME#v}\` (linux/amd64 + linux/arm64)." >> "$GITHUB_STEP_SUMMARY"
