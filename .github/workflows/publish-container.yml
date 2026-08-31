@@ -64,6 +64,23 @@ jobs:
             echo "::error::'$TAG_NAME' is not an explicit version (expected e.g. v43.0.3)."
             exit 1
           fi
+      # A tag created before versioned publishing existed still has
+      # `remote_tags = ["latest"]` in its BUILD file, which silently ignores
+      # --embed_label and would republish `latest`. Build the tag file first and
+      # assert it carries the expected version, so that case fails loudly here
+      # instead of quietly overwriting a floating tag in the registry.
+      - name: Verify the checked-out source produces the expected version
+        env:
+          TAG_NAME: ${{ inputs.tag_name }}
+        run: |
+          set -euo pipefail
+          EXPECTED="${TAG_NAME#v}"
+          bazel build --embed_label="$TAG_NAME" //containers:remote_tags
+          ACTUAL="$(cat bazel-bin/containers/remote_tags.txt)"
+          if [ "$ACTUAL" != "$EXPECTED" ]; then
+            echo "::error::Source at '$TAG_NAME' yields tag(s) '$ACTUAL', expected '$EXPECTED'. That tag predates versioned container publishing; nothing was pushed."
+            exit 1
+          fi
       # --embed_label drives //containers:remote_tags, which emits the bare
       # semver. It must precede the target: it is a bazel flag, not an argument
       # to the push script.
