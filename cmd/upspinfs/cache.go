@@ -539,30 +539,18 @@ func (cf *cachedFile) writeback(n *node) error {
 		return nil
 	}
 
-	// Read the whole file into memory. Hope it fits.
+	// The file is streamed from the cache file a block at a time rather
+	// than read into memory, so it may be larger than memory.
 	info, err := cf.file.Stat()
 	if err != nil {
 		return errors.E(op, err)
 	}
-	cleartext := make([]byte, info.Size())
-	var sofar int64
-	for sofar != info.Size() {
-		len, err := cf.file.ReadAt(cleartext[sofar:], sofar)
-		if len > 0 {
-			sofar += int64(len)
-		}
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return errors.E(op, err)
-		}
-	}
+	size := info.Size()
 
 	// Use the client library to write it back.  Try multiple times on error.
 	var de *upspin.DirEntry
 	for tries := 0; ; tries++ {
-		de, err = cf.c.client.PutSequenced(n.uname, n.seq, cleartext)
+		de, err = cf.c.client.PutSequencedFrom(n.uname, n.seq, io.NewSectionReader(cf.file, 0, size))
 		if err == nil {
 			n.seq = de.Sequence
 			cf.attachDirEntry(n.f.config, de, true)

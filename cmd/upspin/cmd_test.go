@@ -26,6 +26,7 @@ var allCmdTests = []*[]cmdTest{
 	&lsTests,
 	&shareTests,
 	&suffixedUserTests,
+	&largeFileTests,
 }
 
 // TestCommands runs the tests defined in cmdTests as subtests.
@@ -180,6 +181,20 @@ func expect(words ...string) func(t *testing.T, r *runner, cmd *cmdTest, stdout,
 			}
 			prev = word
 			out = out[index:]
+		}
+	}
+}
+
+// expectExactly is a post function that verifies that standard output from
+// the command is exactly the given text. It is meant for large outputs,
+// so it does not print them when they differ.
+func expectExactly(want string) func(t *testing.T, r *runner, cmd *cmdTest, stdout, stderr string) {
+	return func(t *testing.T, r *runner, cmd *cmdTest, stdout, stderr string) {
+		if stderr != "" {
+			t.Fatalf("%q: unexpected error:\n\t%q", cmd.name, stderr)
+		}
+		if stdout != want {
+			t.Fatalf("%q: output of %d bytes differs from expected %d bytes", cmd.name, len(stdout), len(want))
 		}
 	}
 }

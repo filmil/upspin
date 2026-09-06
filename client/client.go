@@ -7,7 +7,9 @@
 package client // import "upspin.io/client"
 
 import (
+	"bytes"
 	"fmt"
+	"io"
 	"strings"
 
 	"upspin.io/access"
@@ -105,6 +107,23 @@ func (c *Client) Put(name upspin.PathName, data []byte) (*upspin.DirEntry, error
 
 // PutSequenced implements upspin.Client.
 func (c *Client) PutSequenced(name upspin.PathName, seq int64, data []byte) (*upspin.DirEntry, error) {
+	return c.put(name, seq, bytes.NewReader(data))
+}
+
+// PutFrom implements upspin.Client.
+func (c *Client) PutFrom(name upspin.PathName, r io.Reader) (*upspin.DirEntry, error) {
+	return c.put(name, upspin.SeqIgnore, r)
+}
+
+// PutSequencedFrom implements upspin.Client.
+func (c *Client) PutSequencedFrom(name upspin.PathName, seq int64, r io.Reader) (*upspin.DirEntry, error) {
+	return c.put(name, seq, r)
+}
+
+// put stores the data read from r at name, subject to the sequence
+// number seq. The data is read, packed and stored one block at a time,
+// so only a single block is held in memory regardless of the file's size.
+func (c *Client) put(name upspin.PathName, seq int64, r io.Reader) (*upspin.DirEntry, error) {
 	const op errors.Op = "client.Put"
 	m, s := newMetric(op)
 	defer m.Done()
@@ -132,19 +151,28 @@ func (c *Client) PutSequenced(name upspin.PathName, seq int64, data []byte) (*up
 		return nil, errors.E(op, name, errors.Errorf("unrecognized Packing %d", c.config.Packing()))
 	}
 
-	// Ensure Access file is valid.
-	if access.IsAccessFile(name) {
-		_, err := access.Parse(name, data)
+	// Access and Group files must be validated in full before being
+	// stored. They are small, so read them into memory to do so.
+	if access.IsAccessFile(name) || access.IsGroupFile(name) {
+		data, err := io.ReadAll(r)
 		if err != nil {
-			return nil, errors.E(op, name, err)
+			return nil, errors.E(op, name, errors.IO, err)
 		}
-	}
-	// Ensure Group file is valid.
-	if access.IsGroupFile(name) {
-		_, err := access.ParseGroup(parsed, data)
-		if err != nil {
-			return nil, errors.E(op, name, err)
+		// Ensure Access file is valid.
+		if access.IsAccessFile(name) {
+			_, err := access.Parse(name, data)
+			if err != nil {
+				return nil, errors.E(op, name, err)
+			}
 		}
+		// Ensure Group file is valid.
+		if access.IsGroupFile(name) {
+			_, err := access.ParseGroup(parsed, data)
+			if err != nil {
+				return nil, errors.E(op, name, err)
+			}
+		}
+		r = bytes.NewReader(data)
 	}
 
 	entry := &upspin.DirEntry{
@@ -159,7 +187,7 @@ func (c *Client) PutSequenced(name upspin.PathName, seq int64, data []byte) (*up
 	}
 
 	ss := s.StartSpan("pack")
-	if err := c.pack(entry, data, packer, ss); err != nil {
+	if err := c.pack(entry, r, packer, ss); err != nil {
 		return nil, errors.E(op, err)
 	}
 	ss.End()
@@ -241,7 +269,10 @@ func (c *Client) access(path upspin.PathName, dir upspin.DirServer) (*access.Acc
 	return access.Parse(whichAccess.Name, accessData)
 }
 
-func (c *Client) pack(entry *upspin.DirEntry, data []byte, packer upspin.Packer, s *metric.Span) error {
+// pack reads the data from r one block at a time, packing each block and
+// storing it in the StoreServer, and records the blocks in entry.
+// Only one block is held in memory at a time, so the data may be of any size.
+func (c *Client) pack(entry *upspin.DirEntry, r io.Reader, packer upspin.Packer, s *metric.Span) error {
 	// Verify the blocks aren't too big. This can't happen unless someone's modified
 	// flags.BlockSize underfoot, but protect anyway.
 	if flags.BlockSize > upspin.MaxBlockSize {
@@ -256,30 +287,44 @@ func (c *Client) pack(entry *upspin.DirEntry, data []byte, packer upspin.Packer,
 	if err != nil {
 		return err
 	}
-	for len(data) > 0 {
-		n := len(data)
-		if n > flags.BlockSize {
-			n = flags.BlockSize
+	// The block buffer is reused for every block: BlockPacker.Pack promises
+	// its result is valid only until the next Pack, and StoreServer.Put
+	// does not retain its argument, so nothing holds on to it.
+	// If the reader knows it holds less than a block, as bytes.Reader does,
+	// don't allocate a whole block for it.
+	size := flags.BlockSize
+	if l, ok := r.(interface{ Len() int }); ok && l.Len() < size {
+		size = l.Len()
+	}
+	buf := make([]byte, size)
+	for len(buf) > 0 {
+		n, err := io.ReadFull(r, buf)
+		if n > 0 {
+			ss := s.StartSpan("bp.pack")
+			cipher, err := bp.Pack(buf[:n])
+			ss.End()
+			if err != nil {
+				return err
+			}
+			ss = s.StartSpan("store.Put")
+			refdata, err := store.Put(cipher)
+			ss.End()
+			if err != nil {
+				return err
+			}
+			bp.SetLocation(
+				upspin.Location{
+					Endpoint:  c.config.StoreEndpoint(),
+					Reference: refdata.Reference,
+				},
+			)
 		}
-		ss := s.StartSpan("bp.pack")
-		cipher, err := bp.Pack(data[:n])
-		ss.End()
+		if err == io.EOF || err == io.ErrUnexpectedEOF {
+			break
+		}
 		if err != nil {
 			return err
 		}
-		data = data[n:]
-		ss = s.StartSpan("store.Put")
-		refdata, err := store.Put(cipher)
-		ss.End()
-		if err != nil {
-			return err
-		}
-		bp.SetLocation(
-			upspin.Location{
-				Endpoint:  c.config.StoreEndpoint(),
-				Reference: refdata.Reference,
-			},
-		)
 	}
 	return bp.Close()
 }
@@ -769,7 +814,7 @@ func (c *Client) SetTimeSequenced(name upspin.PathName, seq int64, t upspin.Time
 
 	// Record directory entry.
 	entry.Sequence = seq
-	e , _, err := c.lookup(op, entry, putLookupFn, doNotFollowFinalLink, s)
+	e, _, err := c.lookup(op, entry, putLookupFn, doNotFollowFinalLink, s)
 	if err != nil {
 		return nil, errors.E(op, err)
 	}

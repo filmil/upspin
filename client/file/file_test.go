@@ -5,6 +5,7 @@
 package file
 
 import (
+	"io"
 	"strings"
 	"testing"
 
@@ -123,6 +124,17 @@ func (d *dummyClient) Put(name upspin.PathName, data []byte) (*upspin.DirEntry, 
 func (d *dummyClient) PutSequenced(name upspin.PathName, seq int64, data []byte) (*upspin.DirEntry, error) {
 	d.putData = make([]byte, len(data))
 	copy(d.putData, data)
+	return nil, nil
+}
+func (d *dummyClient) PutFrom(name upspin.PathName, r io.Reader) (*upspin.DirEntry, error) {
+	return d.PutSequencedFrom(name, upspin.SeqIgnore, r)
+}
+func (d *dummyClient) PutSequencedFrom(name upspin.PathName, seq int64, r io.Reader) (*upspin.DirEntry, error) {
+	data, err := io.ReadAll(r)
+	if err != nil {
+		return nil, err
+	}
+	d.putData = data
 	return nil, nil
 }
 func (d *dummyClient) PutLink(oldName, newName upspin.PathName) (*upspin.DirEntry, error) {

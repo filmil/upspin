@@ -7,6 +7,7 @@ package upspin // import "upspin.io/upspin"
 import (
 	"crypto/elliptic"
 	"errors"
+	"io"
 	"math/big"
 	"time"
 )
@@ -726,6 +727,16 @@ type Client interface {
 	// description of AttrIncomplete) containing only the
 	// new sequence number.
 	PutSequenced(name PathName, seq int64, data []byte) (*DirEntry, error)
+
+	// PutFrom is like Put but takes the data from r, reading and
+	// storing it one block at a time. Unlike Put, it therefore does
+	// not require the whole file to be held in memory, and so is the
+	// preferred way to store large files.
+	PutFrom(name PathName, r io.Reader) (*DirEntry, error)
+
+	// PutSequencedFrom is like PutSequenced but takes the data from
+	// r, reading and storing it one block at a time as PutFrom does.
+	PutSequencedFrom(name PathName, seq int64, r io.Reader) (*DirEntry, error)
 
 	// PutLink creates a link from the new name to the old name. The
 	// new name must not look like the path to an Access or Group file.

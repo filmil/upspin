@@ -807,3 +807,46 @@ func eventually(t *testing.T, f func() error, d time.Duration) {
 		time.Sleep(100 * time.Millisecond)
 	}
 }
+
+// TestLargeFileWriteback checks that a file spanning several blocks written
+// through the file system is written back to the store in full, and can be
+// read back both directly from Upspin and through the file system.
+func TestLargeFileWriteback(t *testing.T) {
+	testDir := mkTestDir(t, "TestLargeFileWriteback")
+	uTestDir := path.Join(upspin.PathName(testConfig.user), "TestLargeFileWriteback")
+	cl := client.New(testConfig.cfg)
+
+	fn := filepath.Join(testDir, "file")
+	ufn := path.Join(uTestDir, "file")
+	buf := randomBytes(t, 2*upspin.BlockSize+12345)
+
+	// Closing the file writes it back.
+	wf := writeFile(t, fn, buf)
+	if err := wf.Close(); err != nil {
+		fatal(t, err)
+	}
+
+	// Read it back directly from Upspin, bypassing the file system's cache.
+	data, err := cl.Get(ufn)
+	if err != nil {
+		fatal(t, err)
+	}
+	if !bytes.Equal(data, buf) {
+		fatalf(t, "%s: got %d bytes from Upspin, want %d; contents differ", fn, len(data), len(buf))
+	}
+	entry, err := cl.Lookup(ufn, true)
+	if err != nil {
+		fatal(t, err)
+	}
+	if len(entry.Blocks) != 3 {
+		fatalf(t, "%s: has %d blocks, want 3", fn, len(entry.Blocks))
+	}
+
+	// And through the file system.
+	openReadAndCheckContentsOrDie(t, fn, buf)
+	remove(t, fn)
+
+	if err := os.RemoveAll(testDir); err != nil {
+		t.Fatal(err)
+	}
+}
