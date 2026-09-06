@@ -1175,3 +1175,278 @@ func TestAllUsers(t *testing.T) {
 }
 
 // TODO add a malicious directory server to test tinfoil checks
+
+// errReader yields n bytes and then fails.
+type errReader struct {
+	n   int
+	err error
+}
+
+func (r *errReader) Read(b []byte) (int, error) {
+	if r.n <= 0 {
+		return 0, r.err
+	}
+	if len(b) > r.n {
+		b = b[:r.n]
+	}
+	for i := range b {
+		b[i] = byte(i)
+	}
+	r.n -= len(b)
+	return len(b), nil
+}
+
+// TestPutFromGet checks that a file stored a block at a time from a reader,
+// including one delivering short reads, is stored in the same blocks as one
+// stored from memory, and reads back correctly.
+func TestPutFromGet(t *testing.T) {
+	const (
+		user     = "putfrom@example.com"
+		fromName = user + "/from"
+		putName  = user + "/put"
+		size     = 10*1023 + 17 // Several blocks plus a partial one.
+	)
+	client := New(setup(baseCfg, user))
+
+	// Use a smaller block size so the file spans many blocks.
+	oldBlockSize := flags.BlockSize
+	flags.BlockSize = 1023
+	defer func() {
+		flags.BlockSize = oldBlockSize
+	}()
+
+	data := make([]byte, size)
+	for i := range data {
+		data[i] = byte(i * 7)
+	}
+
+	// HalfReader returns short reads, so blocks must be assembled from
+	// several reads.
+	_, err := client.PutFrom(fromName, iotest.HalfReader(bytes.NewReader(data)))
+	if err != nil {
+		t.Fatal("put from reader:", err)
+	}
+	got, err := client.Get(fromName)
+	if err != nil {
+		t.Fatal("get:", err)
+	}
+	if !bytes.Equal(got, data) {
+		t.Fatalf("get returned %d bytes, want %d; contents differ", len(got), len(data))
+	}
+
+	// The blocks must be laid out exactly as Put lays them out.
+	if _, err := client.Put(putName, data); err != nil {
+		t.Fatal("put:", err)
+	}
+	fromEntry, err := client.Lookup(fromName, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	putEntry, err := client.Lookup(putName, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := (size + 1022) / 1023; len(fromEntry.Blocks) != want {
+		t.Fatalf("PutFrom made %d blocks, want %d", len(fromEntry.Blocks), want)
+	}
+	if len(fromEntry.Blocks) != len(putEntry.Blocks) {
+		t.Fatalf("PutFrom made %d blocks, Put made %d", len(fromEntry.Blocks), len(putEntry.Blocks))
+	}
+	for i := range fromEntry.Blocks {
+		f, p := fromEntry.Blocks[i], putEntry.Blocks[i]
+		if f.Offset != p.Offset || f.Size != p.Size {
+			t.Fatalf("block %d: PutFrom has offset %d size %d, Put has offset %d size %d",
+				i, f.Offset, f.Size, p.Offset, p.Size)
+		}
+	}
+}
+
+func TestPutFromEmpty(t *testing.T) {
+	const (
+		user     = "putfromempty@example.com"
+		fromName = user + "/from"
+		putName  = user + "/put"
+	)
+	client := New(setup(baseCfg, user))
+	if _, err := client.PutFrom(fromName, strings.NewReader("")); err != nil {
+		t.Fatal("put from reader:", err)
+	}
+	if _, err := client.Put(putName, nil); err != nil {
+		t.Fatal("put:", err)
+	}
+	for _, name := range []upspin.PathName{fromName, putName} {
+		got, err := client.Get(name)
+		if err != nil {
+			t.Fatal("get:", err)
+		}
+		if len(got) != 0 {
+			t.Fatalf("get of %q returned %d bytes, want 0", name, len(got))
+		}
+		entry, err := client.Lookup(name, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(entry.Blocks) != 0 {
+			t.Fatalf("%q has %d blocks, want 0", name, len(entry.Blocks))
+		}
+	}
+}
+
+func TestPutSequencedFrom(t *testing.T) {
+	const (
+		user     = "putseqfrom@example.com"
+		fileName = user + "/file"
+		text     = "hello sailor"
+		text2    = "put your lips together and blow"
+	)
+	client := New(setup(baseCfg, user))
+	d, err := client.PutSequencedFrom(fileName, upspin.SeqIgnore, strings.NewReader(text))
+	if err != nil {
+		t.Fatal("put file:", err)
+	}
+	seq := d.Sequence
+	// The right sequence number succeeds and advances the sequence.
+	d, err = client.PutSequencedFrom(fileName, seq, strings.NewReader(text2))
+	if err != nil {
+		t.Fatal("put file:", err)
+	}
+	if d.Sequence == seq {
+		t.Fatalf("sequence number should have advanced")
+	}
+	// The old sequence number fails and leaves the data unchanged.
+	if _, err = client.PutSequencedFrom(fileName, seq, strings.NewReader(text)); err == nil {
+		t.Fatalf("PutSequencedFrom with wrong sequence number should have failed")
+	}
+	data, err := client.Get(fileName)
+	if err != nil {
+		t.Fatal("get file:", err)
+	}
+	if string(data) != text2 {
+		t.Fatalf("get of %q has text %q; should be %q", fileName, data, text2)
+	}
+}
+
+// TestPutFromReadError checks that a failing reader fails the Put and
+// leaves no file behind.
+func TestPutFromReadError(t *testing.T) {
+	const (
+		user     = "putfromerr@example.com"
+		fileName = user + "/file"
+	)
+	client := New(setup(baseCfg, user))
+	oldBlockSize := flags.BlockSize
+	flags.BlockSize = 1023
+	defer func() {
+		flags.BlockSize = oldBlockSize
+	}()
+
+	readErr := errors.Str("disk on fire")
+	_, err := client.PutFrom(fileName, &errReader{n: 3000, err: readErr})
+	if err == nil {
+		t.Fatal("PutFrom with failing reader should have failed")
+	}
+	if !strings.Contains(err.Error(), readErr.Error()) {
+		t.Fatalf("error = %v, want it to mention %v", err, readErr)
+	}
+	_, err = client.Lookup(fileName, true)
+	if !errors.Is(errors.NotExist, err) {
+		t.Fatalf("after failed PutFrom, Lookup error = %v, want NotExist", err)
+	}
+}
+
+func TestPutFromRejectsBadAccessFile(t *testing.T) {
+	const (
+		user          = "badfrom@access.org"
+		accessFile    = user + "/Access"
+		accessContent = "all:*"
+	)
+	client := New(setup(baseCfg, user))
+	_, err := client.PutFrom(accessFile, strings.NewReader(accessContent))
+	expectedErr := errors.E(upspin.PathName(accessFile), errors.Invalid)
+	if !errors.Match(expectedErr, err) {
+		t.Fatalf("error = %s, want = %s", err, expectedErr)
+	}
+	// A valid Access file is accepted and stored in full.
+	const good = "read: all\n"
+	if _, err := client.PutFrom(accessFile, strings.NewReader(good)); err != nil {
+		t.Fatal("put good access file:", err)
+	}
+	data, err := client.Get(accessFile)
+	if err != nil {
+		t.Fatal("get access file:", err)
+	}
+	if string(data) != good {
+		t.Fatalf("access file has %q, want %q", data, good)
+	}
+}
+
+func TestPutFromRejectsBadGroupFile(t *testing.T) {
+	const (
+		user         = "badfrom@group.org"
+		groupDir     = user + "/Group"
+		groupFile    = groupDir + "/mygroup"
+		groupContent = "foo@x, yo! ; whoo-hoo!"
+	)
+	client := New(setup(baseCfg, user))
+	if _, err := client.MakeDirectory(groupDir); err != nil {
+		t.Fatal(err)
+	}
+	_, err := client.PutFrom(groupFile, strings.NewReader(groupContent))
+	expectedErr := errors.E(upspin.PathName(groupFile), errors.Invalid)
+	if !errors.Match(expectedErr, err) {
+		t.Fatalf("error = %s, want = %s", err, expectedErr)
+	}
+}
+
+// TestCreateLargeFile checks that a File larger than a block, and so
+// larger than is held in memory, written through Create is stored
+// in full and reads back correctly.
+func TestCreateLargeFile(t *testing.T) {
+	const (
+		user     = "createlarge@example.com"
+		fileName = user + "/file"
+		size     = 2*upspin.BlockSize + 12345
+	)
+	client := New(setup(baseCfg, user))
+	f, err := client.Create(fileName)
+	if err != nil {
+		t.Fatal("create:", err)
+	}
+	data := make([]byte, size)
+	for i := range data {
+		data[i] = byte(i * 13)
+	}
+	// Write in odd-sized pieces, then go back and change the start.
+	const piece = 100000
+	for off := 0; off < size; off += piece {
+		end := off + piece
+		if end > size {
+			end = size
+		}
+		if _, err := f.Write(data[off:end]); err != nil {
+			t.Fatalf("write at %d: %v", off, err)
+		}
+	}
+	copy(data[10:20], "0123456789")
+	if _, err := f.WriteAt(data[10:20], 10); err != nil {
+		t.Fatal("writeAt:", err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal("close:", err)
+	}
+
+	got, err := client.Get(fileName)
+	if err != nil {
+		t.Fatal("get:", err)
+	}
+	if !bytes.Equal(got, data) {
+		t.Fatalf("get returned %d bytes, want %d; contents differ", len(got), len(data))
+	}
+	entry, err := client.Lookup(fileName, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entry.Blocks) != 3 {
+		t.Fatalf("file has %d blocks, want 3", len(entry.Blocks))
+	}
+}

@@ -34,7 +34,14 @@ characters. (Leading @ signs are always expanded.)
 		usageAndExit(fs)
 	}
 
-	data := s.ReadAll(*inFile)
+	// The input is streamed to the store rather than read into memory,
+	// so it may be larger than memory.
+	input := s.Stdin
+	if *inFile != "" {
+		f := s.OpenLocal(*inFile)
+		defer f.Close()
+		input = f
+	}
 	// Must be a valid Upspin name.
 	parsed, err := path.Parse(s.AtSign(fs.Arg(0)))
 	if err != nil {
@@ -60,7 +67,7 @@ characters. (Leading @ signs are always expanded.)
 		}
 		cl = client.New(config.SetPacking(s.Config, p.Packing()))
 	}
-	_, err = cl.Put(name, data)
+	_, err = cl.PutFrom(name, input)
 	if err != nil {
 		s.Exit(err)
 	}

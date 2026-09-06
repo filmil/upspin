@@ -5,6 +5,8 @@
 package main
 
 import (
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"upspin.io/upspin"
@@ -653,5 +655,46 @@ var suffixedUserTests = []cmdTest{
 		do("user ann+quux@example.com"),
 		"",
 		expect("name: ann+quux@example.com", "dirs", "- remote,localhost", "stores", "- remote,localhost", "publickey"),
+	},
+}
+
+// largeText is bigger than a block, so a file holding it spans several
+// blocks and is streamed to and from the store rather than held in memory.
+var largeText = strings.Repeat("0123456789abcdef", (upspin.BlockSize+upspin.BlockSize/2)/16)
+
+// largeFileTests tests that put, cp and get handle a file larger than a block,
+// whether it comes from standard input, a local file, or Upspin.
+var largeFileTests = []cmdTest{
+	{
+		"put large file from stdin",
+		ann,
+		do(
+			"mkdir @/large",
+			"put @/large/stdin",
+			"get @/large/stdin",
+		),
+		largeText,
+		expectExactly(largeText),
+	},
+	{
+		"put large file from local file",
+		ann,
+		do(
+			"cp @/large/stdin "+testTempDir("large", deleteOld),
+			"put -in="+filepath.Join(testTempDir("large", keepOld), "stdin")+" @/large/in",
+			"get @/large/in",
+		),
+		"",
+		expectExactly(largeText),
+	},
+	{
+		"cp large local file to Upspin",
+		ann,
+		do(
+			"cp "+filepath.Join(testTempDir("large", keepOld), "stdin")+" @/large/cp",
+			"get @/large/cp",
+		),
+		"",
+		expectExactly(largeText),
 	},
 }

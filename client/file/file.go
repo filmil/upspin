@@ -20,8 +20,9 @@ import (
 var maxInt = int64(^uint(0) >> 1)
 
 // File is a simple implementation of upspin.File.
-// It always keeps the whole file in memory under the assumption
-// that it is encrypted and must be read and written atomically.
+// A readable File fetches one block at a time; a writable File
+// accumulates what is written, spilling to a temporary file on
+// local disk beyond one block's worth, and stores it all on Close.
 type File struct {
 	name     upspin.PathName // Full path name.
 	offset   int64           // File location for next read or write operation. Constrained to <= maxInt.
@@ -40,7 +41,7 @@ type File struct {
 
 	// Used only by writers.
 	client upspin.Client // Client the File belongs to.
-	data   []byte        // Contents of file.
+	spool  spool         // Contents of file.
 }
 
 var _ upspin.File = (*File)(nil)
@@ -187,7 +188,7 @@ func (f *File) Seek(offset int64, whence int) (ret int64, err error) {
 		ret = f.offset + offset
 	case 2:
 		if f.writable {
-			ret = int64(len(f.data)) + offset
+			ret = f.spool.size + offset
 		} else {
 			ret = f.size + offset
 		}
@@ -231,23 +232,11 @@ func (f *File) writeAt(op errors.Op, b []byte, off int64) (n int, err error) {
 	if end > maxInt {
 		return 0, errors.E(op, errors.Invalid, f.name, "file too long")
 	}
-	if end > int64(cap(f.data)) {
-		// Grow the capacity of f.data but keep length the same.
-		// Be careful not to ask for more than an int's worth of length.
-		nLen := end * 3 / 2
-		if nLen > maxInt {
-			nLen = maxInt
-		}
-		ndata := make([]byte, len(f.data), nLen)
-		copy(ndata, f.data)
-		f.data = ndata
+	n, err = f.spool.writeAt(b, off)
+	if err != nil {
+		return n, errors.E(op, errors.IO, f.name, err)
 	}
-	// Capacity is OK now. Fix the length if necessary.
-	if end > int64(len(f.data)) {
-		f.data = f.data[:end]
-	}
-	copy(f.data[off:], b)
-	return len(b), nil
+	return n, nil
 }
 
 // Close implements upspin.File.
@@ -265,8 +254,10 @@ func (f *File) Close() error {
 		}
 		return nil
 	}
-	_, err := f.client.Put(f.name, f.data)
-	f.data = nil // Might as well release it early.
+	_, err := f.client.PutFrom(f.name, f.spool.reader())
+	if cerr := f.spool.close(); err == nil && cerr != nil {
+		err = errors.E(op, errors.IO, f.name, cerr)
+	}
 	return err
 }
 
