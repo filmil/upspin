@@ -27,6 +27,7 @@ go_test(
     data = ["//key/testdata"],
     embed = [":config"],
     deps = [
+        "//errors",
         "//pack",
         "//pack/ee",
         "//pack/plain",

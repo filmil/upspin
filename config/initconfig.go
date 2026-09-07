@@ -67,8 +67,12 @@ const (
 	// requirePacking names a packing that every regular file must have;
 	// see client/clientutil.CheckPacking.
 	requirePacking = "requirepacking"
-	secrets        = "secrets"
-	cache          = "cache"
+	// experimental lists opt-in features, separated by commas or spaces.
+	// "eepq" enables the post-quantum packing for this process, the same
+	// switch the -eepq flag sets, but persistent in the user's own config.
+	experimental = "experimental"
+	secrets      = "secrets"
+	cache        = "cache"
 )
 
 // ErrNoFactotum indicates that the returned config contains no Factotum, and
@@ -139,6 +143,7 @@ func InitConfig(r io.Reader) (upspin.Config, error) {
 		username:       string(defaultUserName),
 		packing:        defaultPacking.String(),
 		requirePacking: "",
+		experimental:   "",
 		keyserver:      "",
 		dirserver:      "",
 		storeserver:    "",
@@ -189,12 +194,23 @@ func InitConfig(r io.Reader) (upspin.Config, error) {
 		}
 	}
 
+	// Opt-in features come before the packing checks, since one of them
+	// is what makes the eepq packing acceptable.
+	for _, feature := range strings.FieldsFunc(vals[experimental], func(r rune) bool { return r == ',' || r == ' ' }) {
+		switch feature {
+		case "eepq":
+			pack.SetEnabled(upspin.EEPQPack, true)
+		default:
+			return nil, errors.E(op, errors.Invalid, errors.Errorf("unknown experimental feature %q", feature))
+		}
+	}
+
 	packer := pack.LookupByName(vals[packing])
 	if packer == nil {
 		return nil, errors.E(op, errors.Invalid, errors.Errorf("unknown packing %q", vals[packing]))
 	}
 	if packer.Packing() == upspin.EEPQPack && !ee.EEPQEnabled() {
-		return nil, errors.E(op, errors.Permission, errors.Errorf("packing %q requires the -eepq flag", vals[packing]))
+		return nil, errors.E(op, errors.Permission, errors.Errorf("packing %q requires the -eepq flag or \"experimental: eepq\" in the config", vals[packing]))
 	}
 	cfg = SetPacking(cfg, packer.Packing())
 	if name := vals[requirePacking]; name != "" {
@@ -203,7 +219,7 @@ func InitConfig(r io.Reader) (upspin.Config, error) {
 			return nil, errors.E(op, errors.Invalid, errors.Errorf("unknown requirepacking %q", name))
 		}
 		if required.Packing() == upspin.EEPQPack && !ee.EEPQEnabled() {
-			return nil, errors.E(op, errors.Permission, errors.Errorf("requirepacking %q requires the -eepq flag", name))
+			return nil, errors.E(op, errors.Permission, errors.Errorf("requirepacking %q requires the -eepq flag or \"experimental: eepq\" in the config", name))
 		}
 		cfg = SetValue(cfg, requirePacking, name)
 	}

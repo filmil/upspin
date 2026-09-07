@@ -143,18 +143,21 @@ file and keys and only send the signup request to the key server.
 
 	// Write the config file. A post-quantum key type selects the packing
 	// that uses its ML-KEM component.
-	packing := "ee"
+	packing, experimental := "ee", ""
 	if _, kem, _ := factotum.ParseKeyType(*curve); kem != factotum.NoKEM {
-		packing = "eepq"
+		// The packing is opt-in; write the opt-in next to it so that the
+		// config works without the -eepq flag on every invocation.
+		packing, experimental = "eepq", "eepq"
 	}
 	var configContents bytes.Buffer
 	err = configTemplate.Execute(&configContents, configData{
-		UserName:  userName,
-		Key:       keyEndpoint,
-		Dir:       dirEndpoint,
-		Store:     storeEndpoint,
-		Packing:   packing,
-		SecretDir: *secrets,
+		UserName:     userName,
+		Key:          keyEndpoint,
+		Dir:          dirEndpoint,
+		Store:        storeEndpoint,
+		Packing:      packing,
+		Experimental: experimental,
+		SecretDir:    *secrets,
 	})
 	if err != nil {
 		s.Exit(err)
@@ -216,6 +219,7 @@ type configData struct {
 	UserName        upspin.UserName
 	Key, Store, Dir *upspin.Endpoint
 	Packing         string
+	Experimental    string
 	SecretDir       string
 }
 
@@ -226,7 +230,8 @@ username: {{.UserName}}
 storeserver: {{.Store}}
 dirserver: {{.Dir}}
 packing: {{.Packing}}
-{{with .SecretDir}}secrets: {{.}}
+{{with .Experimental}}experimental: {{.}}
+{{end}}{{with .SecretDir}}secrets: {{.}}
 {{end}}
 `))
 
