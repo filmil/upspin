@@ -10,6 +10,7 @@ import (
 	"crypto/mlkem"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -342,5 +343,53 @@ func TestNewFromKeysPQMismatch(t *testing.T) {
 	wrongSeed := append(append([]byte(nil), scalar...), []byte(otherLines[13]+"\n")...)
 	if _, err := NewFromKeys(pub, wrongSeed, nil); err == nil {
 		t.Error("NewFromKeys(pq public, wrong ML-KEM seed): expected error")
+	}
+}
+
+// TestKeyLengthLimits checks that oversized key material is rejected by a
+// length check before any parsing, and that the fixtures fit under the
+// limits with room to spare.
+func TestKeyLengthLimits(t *testing.T) {
+	read := func(dir, name string) []byte {
+		b, err := os.ReadFile(filepath.Join("testdata", dir, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return b
+	}
+	pub := read("pq", "public.upspinkey")
+	priv := read("pq", "secret.upspinkey")
+	archive := read("pq-archived", "secret2.upspinkey")
+	if len(pub) > MaxPublicKeyLen/2 || len(priv) > MaxPrivateKeyLen/2 || len(archive) > MaxArchiveLen/64 {
+		t.Errorf("fixtures too close to the limits: pub %d, priv %d, archive %d", len(pub), len(priv), len(archive))
+	}
+
+	// A public key of digits that would cost a big.Int parse is refused
+	// by length, and cheaply.
+	huge := []byte("p256\n" + strings.Repeat("9", MaxPublicKeyLen) + "\n1\n")
+	var before, after runtime.MemStats
+	runtime.GC()
+	runtime.ReadMemStats(&before)
+	_, err := ParsePublicKey(upspin.PublicKey(huge))
+	runtime.ReadMemStats(&after)
+	if !errors.Is(errors.Invalid, err) {
+		t.Errorf("oversized public key: got %v, want Invalid", err)
+	}
+	if alloc := after.TotalAlloc - before.TotalAlloc; alloc > 4*uint64(len(huge)) {
+		t.Errorf("oversized public key allocated %d bytes for %d of input", alloc, len(huge))
+	}
+	if _, err := ParseEncapsulationKey(upspin.PublicKey(huge)); !errors.Is(errors.Invalid, err) {
+		t.Errorf("oversized key to ParseEncapsulationKey: got %v, want Invalid", err)
+	}
+	if _, err := NewFromKeys(pub, append(priv, make([]byte, MaxPrivateKeyLen)...), nil); !errors.Is(errors.Invalid, err) {
+		t.Errorf("oversized private key: got %v, want Invalid", err)
+	}
+	if _, err := NewFromKeys(pub, priv, make([]byte, MaxArchiveLen+1)); !errors.Is(errors.Invalid, err) {
+		t.Errorf("oversized archive: got %v, want Invalid", err)
+	}
+	// Under the limit, a malformed record is reported as before (an
+	// archive too short for one record is skipped, as it always was).
+	if _, err := NewFromKeys(pub, priv, []byte("# EE\ngarbage\n1\n2\n3\n")); err == nil {
+		t.Errorf("malformed archive record: expected error")
 	}
 }
