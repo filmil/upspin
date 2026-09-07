@@ -14,43 +14,81 @@ import (
 	"strings"
 
 	"upspin.io/errors"
+	"upspin.io/factotum"
 	"upspin.io/key/proquint"
 	"upspin.io/pack/ee"
 )
 
 // secret represents the secret seed for a key.
-// It is the byte representation of a proquint string.
-//
-// TODO(ehg): Consider whether to use long seeds for P521.
-type secret [16]byte
+// It is the byte representation of a proquint string: 16 bytes (128 bits)
+// for a classic key type and 32 bytes (256 bits) for a post-quantum key
+// type, whose ML-KEM seed FIPS 203 requires to have at least the strength
+// of the KEM.
+type secret []byte
 
-func (b secret) proquint() string {
-	proquints := make([]interface{}, len(b)/2)
-	for i := range proquints {
-		proquints[i] = proquint.Encode(binary.BigEndian.Uint16(b[2*i : 2*i+2]))
+const (
+	classicSeedLen     = 16
+	postQuantumSeedLen = 32
+)
+
+// seedLen returns the seed length in bytes for a key type.
+func seedLen(keyType string) (int, error) {
+	_, kem, err := factotum.ParseKeyType(keyType)
+	if err != nil {
+		return 0, err
 	}
-	return fmt.Sprintf("%s-%s-%s-%s.%s-%s-%s-%s", proquints...)
+	if kem == factotum.NoKEM {
+		return classicSeedLen, nil
+	}
+	return postQuantumSeedLen, nil
+}
+
+// proquint encodes the secret as groups of four proquint words, words
+// separated by "-" and groups by ".": one line of 47 characters for a
+// classic seed, and 95 characters for a post-quantum seed.
+func (b secret) proquint() string {
+	var groups []string
+	for i := 0; i+8 <= len(b); i += 8 {
+		var words []string
+		for j := i; j < i+8; j += 2 {
+			words = append(words, string(proquint.Encode(binary.BigEndian.Uint16(b[j:j+2]))))
+		}
+		groups = append(groups, strings.Join(words, "-"))
+	}
+	return strings.Join(groups, ".")
 }
 
 func secretFromProquint(secretStr string) secret {
-	var b secret
-	pq := []byte(secretStr)
-	for i := 0; i < len(b)/2; i++ {
-		binary.BigEndian.PutUint16(b[2*i:2*i+2], proquint.Decode(pq[6*i:6*i+5]))
+	words := strings.FieldsFunc(secretStr, func(r rune) bool { return r == '-' || r == '.' })
+	b := make(secret, 2*len(words))
+	for i, w := range words {
+		if len(w) != 5 {
+			return nil
+		}
+		binary.BigEndian.PutUint16(b[2*i:2*i+2], proquint.Decode([]byte(w)))
 	}
 	return b
 }
 
-// Generate generates a random key pair on the given curve.
-func Generate(curveName string) (public, private, secretStr string, err error) {
-	// Pick secret 128 bits.
-	var b secret
-	ee.GenEntropy(b[:])
-	return FromSecret(curveName, b.proquint())
+// Generate generates a random key pair of the given key type, one of
+// factotum.KeyTypes. It returns the keys in the form written to the
+// *.upspinkey files and the proquint secret seed that regenerates them.
+func Generate(keyType string) (public, private, secretStr string, err error) {
+	n, err := seedLen(keyType)
+	if err != nil {
+		return "", "", "", err
+	}
+	b := make(secret, n)
+	ee.GenEntropy(b)
+	return FromSecret(keyType, b.proquint())
 }
 
-// FromSecret generates a key pair with the given curve and secret seed.
-func FromSecret(curveName, secret string) (public, private, secretStr string, err error) {
+// FromSecret generates a key pair with the given key type and secret seed.
+// A classic key type needs a 128 bit seed of 8 proquint words and a
+// post-quantum key type a 256 bit seed of 16 words; ValidSecretSeed
+// describes the format. The same key type and seed always yield the same
+// key pair.
+func FromSecret(keyType, secret string) (public, private, secretStr string, err error) {
 	const op errors.Op = "keygen.FromSecret"
 	secretStr = secret
 	if !ValidSecretSeed(secretStr) {
@@ -59,17 +97,28 @@ func FromSecret(curveName, secret string) (public, private, secretStr string, er
 			"got\n\t%q", secretStr)
 		return "", "", "", errors.E(op, errors.Invalid, err)
 	}
+	n, err := seedLen(keyType)
+	if err != nil {
+		return "", "", "", errors.E(op, err)
+	}
 	b := secretFromProquint(secretStr)
-	pub, priv, err := ee.CreateKeys(curveName, b[:])
+	if len(b) != n {
+		err := errors.Errorf("key type %s needs a %d bit secret seed (%d proquint words); got %d bits", keyType, 8*n, n/2, 8*len(b))
+		return "", "", "", errors.E(op, errors.Invalid, err)
+	}
+	pub, priv, err := ee.CreateKeys(keyType, b)
 	if err != nil {
 		return "", "", "", err
 	}
 	return string(pub), priv, secretStr, nil
 }
 
-// ValidSecretSeed reports whether a seed conforms to the proquint format.
+// ValidSecretSeed reports whether a seed conforms to the proquint format:
+// either 8 words (a 128 bit seed for classic key types) or 16 words (a 256
+// bit seed for post-quantum key types), in groups of four words joined by
+// "-", with groups joined by ".".
 func ValidSecretSeed(seed string) bool {
-	if len(seed) != 47 {
+	if len(seed) != 47 && len(seed) != 95 {
 		return false
 	}
 

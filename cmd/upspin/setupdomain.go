@@ -48,8 +48,8 @@ If any state exists at the given location (-where) then the command aborts.
 	whereFlag := fs.String("where", filepath.Join(config.Home(), "upspin", "deploy"), "`directory` to store private configuration files")
 	domain := fs.String("domain", "", "domain `name` for this Upspin installation")
 	project := fs.String("project", "", "GCP `project` name")
-	curveName := fs.String("curve", "p256", "cryptographic curve `name`: p256, p384, or p521")
-	seed := fs.String("secretseed", "", "the seed containing a 128 bit secret in proquint format or a file that contains it")
+	curveName := fs.String("curve", "p256", curveFlagHelp)
+	seed := fs.String("secretseed", "", "the seed containing a 128 bit secret (256 bit for post-quantum key types) in proquint format or a file that contains it")
 	putUsers := fs.Bool("put-users", false, "put server users to the key server")
 	cluster := fs.Bool("cluster", false, "generate keys for upspin-dir@domain and upspin-store@domain (default is upspin@domain only)")
 	s.ParseFlags(fs, args, help, "setupdomain [-where=$HOME/upspin/deploy] [-cluster] -domain=<name>")
@@ -61,12 +61,7 @@ If any state exists at the given location (-where) then the command aborts.
 		s.Failf("the -domain flag must be provided")
 		usageAndExit(fs)
 	}
-	switch *curveName {
-	case "p256", "p384", "p521":
-		// OK
-	default:
-		s.Exitf("no such curve %q", *curveName)
-	}
+	s.checkKeyType(*curveName)
 
 	where := subcmd.Tilde(*whereFlag)
 

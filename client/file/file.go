@@ -52,6 +52,9 @@ func Readable(cfg upspin.Config, entry *upspin.DirEntry) (*File, error) {
 	// TODO(adg): check if this is a dir or link?
 	const op errors.Op = "client/file.Readable"
 
+	if err := clientutil.CheckPacking(cfg, entry); err != nil {
+		return nil, errors.E(op, err)
+	}
 	packer := pack.Lookup(entry.Packing)
 	if packer == nil {
 		return nil, errors.E(op, entry.Name, errors.Invalid, errors.Errorf("unrecognized Packing %d", entry.Packing))

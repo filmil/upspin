@@ -38,10 +38,10 @@ rather than this command.
 		dirServer   = fs.String("dir", string(s.Config.DirEndpoint().NetAddr), "Directory server `address`")
 		storeServer = fs.String("store", string(s.Config.StoreEndpoint().NetAddr), "Store server `address`")
 		bothServer  = fs.String("server", "", "Store and Directory server `address` (if combined)")
-		curve       = fs.String("curve", "p256", "cryptographic curve `name`: p256, p384, or p521")
+		curve       = fs.String("curve", "p256", curveFlagHelp)
 		rotate      = fs.Bool("rotate", false, "back up the existing keys and replace them with new ones")
 		secrets     = fs.String("secrets", "", "`directory` to store key pair")
-		secretseed  = fs.String("secretseed", "", "the seed containing a 128 bit secret in proquint format or a file that contains it")
+		secretseed  = fs.String("secretseed", "", "the seed containing a 128 bit secret (256 bit for post-quantum key types) in proquint format or a file that contains it")
 	)
 	s.ParseFlags(fs, args, help, "createsuffixeduser <suffixed-user-name>")
 

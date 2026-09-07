@@ -20,6 +20,16 @@ Describe every feature improvement made in this fork in
 Do not add fork feature descriptions to `README.md`; it holds the
 original Upspin README plus a link to `README.filmil.md`.
 
+Never edit a markdown file that the original Upspin authors wrote.
+Put every addition to such a file in a file beside it with the same base
+name and the extension `.filmil.md`, for example
+`doc/security.filmil.md` for `doc/security.md`, and link the original
+from the top of the new file.
+This keeps the provenance of every document clear, and with it how much
+scrutiny each received.
+New documents the fork adds use the same extension, for example
+`TODO.filmil.md`.
+
 # Source control guidance
 
 

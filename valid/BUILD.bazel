@@ -8,6 +8,7 @@ go_library(
     deps = [
         "//access",
         "//errors",
+        "//pack",
         "//path",
         "//upspin",
         "//user",
@@ -20,6 +21,9 @@ go_test(
     embed = [":valid"],
     deps = [
         "//access",
+        "//errors",
+        "//pack",
+        "//pack/ee",
         "//upspin",
     ],
 )

@@ -387,17 +387,25 @@ func pdUnmarshal(pd []byte) (sig, sig2 upspin.Signature, hash []byte, err error)
 	sig2.R = big.NewInt(0)
 	sig2.S = big.NewInt(0)
 	buf := make([]byte, marshalBufLen)
-	n += packutil.GetBytes(&buf, pd[n:])
-	sig.R.SetBytes(buf)
-	n += packutil.GetBytes(&buf, pd[n:])
-	sig.S.SetBytes(buf)
-	n += packutil.GetBytes(&buf, pd[n:])
-	sig2.R.SetBytes(buf)
-	n += packutil.GetBytes(&buf, pd[n:])
-	sig2.S.SetBytes(buf)
 	hash = make([]byte, sha256.Size)
-	n += packutil.GetBytes(&hash, pd[n:])
-	if hash == nil {
+	for _, field := range []struct {
+		dst *[]byte
+		set func([]byte)
+	}{
+		{&buf, func(b []byte) { sig.R.SetBytes(b) }},
+		{&buf, func(b []byte) { sig.S.SetBytes(b) }},
+		{&buf, func(b []byte) { sig2.R.SetBytes(b) }},
+		{&buf, func(b []byte) { sig2.S.SetBytes(b) }},
+		{&hash, func([]byte) {}},
+	} {
+		k, err := packutil.GetBytes(field.dst, pd[n:])
+		if err != nil {
+			return sig0, sig0, nil, errors.E(errors.Op("pack/eeintegrity.pdUnmarshal"), errors.Invalid, err)
+		}
+		n += k
+		field.set(*field.dst)
+	}
+	if len(hash) != sha256.Size {
 		return sig0, sig0, nil, errors.Errorf("pdUnmarshal: file hash is required")
 	}
 	return sig, sig2, hash, nil

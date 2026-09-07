@@ -122,7 +122,7 @@ func (d *infoDirEntry) Sequence() int64 {
 
 func (d *infoDirEntry) Hashes() string {
 	h := ""
-	if d.IsDir() || d.Packing != upspin.EEPack {
+	if d.IsDir() || (d.Packing != upspin.EEPack && d.Packing != upspin.EEPQPack) {
 		return h
 	}
 	packer := pack.Lookup(d.Packing)

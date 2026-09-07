@@ -12,6 +12,7 @@ import (
 
 	"upspin.io/access"
 	"upspin.io/errors"
+	"upspin.io/pack"
 	"upspin.io/path"
 	"upspin.io/upspin"
 	"upspin.io/user"
@@ -163,6 +164,12 @@ func DirEntry(entry *upspin.DirEntry) error {
 	switch entry.Packing {
 	case upspin.PlainPack, upspin.EEPack, upspin.EEIntegrityPack:
 		// OK
+	case upspin.EEPQPack:
+		// Opt-in: a server or client that was not started with the
+		// -eepq flag must not accept entries in this packing.
+		if !pack.Enabled(upspin.EEPQPack) {
+			return errors.E(op, errors.Invalid, entry.Name, errors.Errorf("packing %s is disabled; start with the -eepq flag to accept it", entry.Packing))
+		}
 	case upspin.UnassignedPack:
 		if entry.IsDir() {
 			// Okay for directory; DirServer chooses.

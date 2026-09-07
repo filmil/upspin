@@ -8,6 +8,9 @@ import (
 	"testing"
 
 	"upspin.io/access"
+	"upspin.io/errors"
+	"upspin.io/pack"
+	_ "upspin.io/pack/ee" // registers EEPQPack
 	"upspin.io/upspin"
 )
 
@@ -337,5 +340,35 @@ func TestReference(t *testing.T) {
 			continue
 		}
 		t.Errorf("%q: expected valid=%t; got error %v", test.ref, test.valid, err)
+	}
+}
+
+// TestDirEntryEEPQDisabled checks that an entry in the eepq packing is
+// invalid until the packing is enabled, so that a directory server that
+// was not started with the -eepq flag rejects it.
+func TestDirEntryEEPQDisabled(t *testing.T) {
+	entry := &upspin.DirEntry{
+		Name:       "joe@blow.com/file",
+		SignedName: "joe@blow.com/file",
+		Writer:     "joe@blow.com",
+		Packing:    upspin.EEPQPack,
+		Packdata:   []byte{1},
+		Attr:       upspin.AttrNone,
+		Sequence:   1,
+		Blocks: []upspin.DirBlock{{
+			Location: upspin.Location{Endpoint: upspin.Endpoint{Transport: upspin.InProcess}, Reference: "x"},
+			Size:     1,
+			Packdata: []byte{1},
+		}},
+	}
+	pack.SetEnabled(upspin.EEPQPack, false)
+	defer pack.SetEnabled(upspin.EEPQPack, false)
+	err := DirEntry(entry)
+	if !errors.Is(errors.Invalid, err) {
+		t.Errorf("DirEntry with eepq disabled: got %v, want Invalid", err)
+	}
+	pack.SetEnabled(upspin.EEPQPack, true)
+	if err := DirEntry(entry); err != nil {
+		t.Errorf("DirEntry with eepq enabled: %v", err)
 	}
 }

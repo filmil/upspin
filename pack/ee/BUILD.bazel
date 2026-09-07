@@ -28,8 +28,9 @@ go_test(
     srcs = [
         "ee_test.go",
         "export_test.go",
+        "packdata_test.go",
     ],
-    data = ["//key/testdata"],
+    data = ["//key/testdata"] + glob(["testdata/**"]),
     embed = [":ee"],
     deps = [
         "//bind",
@@ -38,8 +39,10 @@ go_test(
         "//factotum",
         "//pack",
         "//pack/internal/packtest",
+        "//pack/packutil",
         "//test/testfixtures",
         "//test/testutil",
         "//upspin",
+        "@org_golang_x_crypto//hkdf",
     ],
 )

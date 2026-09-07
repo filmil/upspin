@@ -16,6 +16,7 @@ import (
 
 	"upspin.io/config"
 	"upspin.io/log"
+	"upspin.io/pack/ee"
 	"upspin.io/upspin"
 )
 
@@ -58,13 +59,13 @@ var None = []string{}
 // Server is the set of flags most useful in servers. It can be passed as the
 // argument to Parse to set up the package for a server.
 var Server = []string{
-	"config", "log", "http", "https", "letscache", "tls", "addr", "insecure",
+	"config", "log", "http", "https", "letscache", "tls", "addr", "insecure", "eepq",
 }
 
 // Client is the set of flags most useful in clients. It can be passed as the
 // argument to Parse to set up the package for a client.
 var Client = []string{
-	"config", "log", "blocksize", "prudent",
+	"config", "log", "blocksize", "prudent", "eepq",
 }
 
 // The Parse and Register functions bind these variables to their respective
@@ -164,8 +165,19 @@ var flags = map[string]*flagVar{
 		},
 	},
 	"config": strVar(&Config, "config", Config, "user's configuration `file`"),
-	"http":   strVar(&HTTPAddr, "http", HTTPAddr, "`address` for incoming insecure network connections"),
-	"https":  strVar(&HTTPSAddr, "https", HTTPSAddr, "`address` for incoming secure network connections"),
+	"eepq": &flagVar{
+		set: func(fs *flag.FlagSet) {
+			fs.Var(&eepq, "eepq", "enable the eepq post-quantum packing and post-quantum key types")
+		},
+		arg: func() string {
+			if ee.EEPQEnabled() {
+				return "-eepq"
+			}
+			return ""
+		},
+	},
+	"http":  strVar(&HTTPAddr, "http", HTTPAddr, "`address` for incoming insecure network connections"),
+	"https": strVar(&HTTPSAddr, "https", HTTPSAddr, "`address` for incoming secure network connections"),
 	"insecure": &flagVar{
 		set: func(fs *flag.FlagSet) {
 			fs.BoolVar(&InsecureHTTP, "insecure", false, "whether to serve insecure HTTP instead of HTTPS")
@@ -340,6 +352,30 @@ func strArg(name, value, _default string) string {
 	}
 	return "-" + name + "=" + value
 }
+
+// eepqFlag implements flag.Value for -eepq ("eepq"). The flag has no
+// variable of its own: its state is the pack registry's, read through
+// ee.EEPQEnabled and written through ee.SetEEPQEnabled, so that there is
+// one switch for the whole process.
+type eepqFlag struct{}
+
+var eepq eepqFlag
+
+// String implements flag.Value.
+func (eepqFlag) String() string { return strconv.FormatBool(ee.EEPQEnabled()) }
+
+// Set implements flag.Value.
+func (eepqFlag) Set(v string) error {
+	on, err := strconv.ParseBool(v)
+	if err != nil {
+		return err
+	}
+	ee.SetEEPQEnabled(on)
+	return nil
+}
+
+// IsBoolFlag lets -eepq be given without a value.
+func (f eepqFlag) IsBoolFlag() bool { return true }
 
 // BlockSize is twinned to this implementation of flag.Value,
 // allowing us to check the value when the flag is set.

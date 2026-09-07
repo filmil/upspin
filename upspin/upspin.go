@@ -314,6 +314,19 @@ const (
 	// like EEPack, but provides no confidentiality.
 	// It is typically used when read access is "all".
 	EEIntegrityPack Packing = 22
+
+	// EEPQPack provides post-quantum end-to-end confidentiality and
+	// integrity protection. Data encryption and signatures are the same
+	// as EEPack: AES-256-CTR for the content and ECDSA for the DirEntry.
+	// The per-file key is wrapped for each reader with a hybrid of ECDH
+	// and ML-KEM (FIPS 203), so recovering it requires breaking both.
+	// Readers and writers need a key whose type names a KEM, for example
+	// "p256+mlkem768"; see factotum.ParseKeyType. Packdata written under
+	// EEPQPack additionally stores one ML-KEM ciphertext per wrapped key.
+	// A Factotum must implement factotum.Decapsulator to unpack it.
+	// The value 24 is unused by upstream upspin.io, which defines only
+	// 0, 1, 20 and 22 and is no longer developed.
+	EEPQPack Packing = 24
 )
 
 // User represents all the public information about an Upspin user as returned by KeyServer.

@@ -1,4 +1,4 @@
-load("@rules_go//go:def.bzl", "go_library")
+load("@rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
     name = "pack",
@@ -9,4 +9,11 @@ go_library(
         "//errors",
         "//upspin",
     ],
+)
+
+go_test(
+    name = "pack_test",
+    srcs = ["pack_test.go"],
+    embed = [":pack"],
+    deps = ["//upspin"],
 )

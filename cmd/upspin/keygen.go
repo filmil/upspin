@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"upspin.io/errors"
+	"upspin.io/factotum"
 	"upspin.io/key/keygen"
 	"upspin.io/subcmd"
 )
@@ -28,14 +29,19 @@ use the "user -put" command for that.
 
 New users should instead use the "signup" command to create their first key.
 
+The -curve flag keeps its name for compatibility but names a key type:
+a curve, optionally followed by +mlkem768 or +mlkem1024 for a
+post-quantum key. Post-quantum key types need the -eepq global flag
+and a 256 bit secret seed.
+
 See the description for rotate for information about updating keys.
 `
 	// Keep flags in sync with signup.go. New flags here should appear
 	// there as well.
 	fs := flag.NewFlagSet("keygen", flag.ExitOnError)
 	var (
-		curve      = fs.String("curve", "p256", "cryptographic curve `name`: p256, p384, or p521")
-		secretSeed = fs.String("secretseed", "", "the seed containing a 128-bit secret in proquint format or a file that contains it")
+		curve      = fs.String("curve", "p256", curveFlagHelp)
+		secretSeed = fs.String("secretseed", "", "the seed containing a 128 bit secret (256 bit for post-quantum key types) in proquint format or a file that contains it")
 		rotate     = fs.Bool("rotate", false, "back up the existing keys and replace them with new ones")
 	)
 	s.ParseFlags(fs, args, help, "keygen [-curve=256] [-secretseed=seed] <directory>")
@@ -45,13 +51,20 @@ See the description for rotate for information about updating keys.
 	s.keygenCommand(fs.Arg(0), *curve, *secretSeed, *rotate)
 }
 
-func (s *State) keygenCommand(where, curve, secretseed string, rotate bool) {
-	switch curve {
-	case "p256", "p384", "p521":
-		// ok
-	default:
-		s.Exitf("no such curve %q", curve)
+// curveFlagHelp is the help text of the -curve flag shared by the commands
+// that generate keys. The flag names a key type: a curve, optionally
+// followed by a KEM for post-quantum key wrapping.
+const curveFlagHelp = "cryptographic key type `name`: p256, p384, or p521, optionally followed by +mlkem768 or +mlkem1024"
+
+// checkKeyType exits with a message if curve is not a key type that keygen accepts.
+func (s *State) checkKeyType(curve string) {
+	if _, _, err := factotum.ParseKeyType(curve); err != nil {
+		s.Exitf("no such curve %q; choose one of %s", curve, strings.Join(factotum.KeyTypes, ", "))
 	}
+}
+
+func (s *State) keygenCommand(where, curve, secretseed string, rotate bool) {
+	s.checkKeyType(curve)
 
 	public, private, secretStr, err := s.createKeys(curve, secretseed)
 	if err != nil {

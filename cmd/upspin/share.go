@@ -225,7 +225,7 @@ func (s *Sharer) readers(entry *upspin.DirEntry) (userList, string, bool, error)
 	if packer == nil {
 		return users, "", self, errors.Errorf("no packer registered for packer %s", entry.Packing)
 	}
-	if packer.Packing() != upspin.EEPack { // TODO: add new sharing packers here.
+	if !wrapsKeys(packer) {
 		return users, "", self, nil
 	}
 	hashes, err := packer.ReaderHashes(entry.Packdata)
@@ -237,7 +237,7 @@ func (s *Sharer) readers(entry *upspin.DirEntry) (userList, string, bool, error)
 	for _, hash := range hashes {
 		var thisUser upspin.UserName
 		switch packer.Packing() {
-		case upspin.EEPack:
+		case upspin.EEPack, upspin.EEPQPack:
 			if len(hash) != sha256.Size {
 				fmt.Fprintf(s.state.Stderr, "%q hash size is %d; expected %d", entry.Name, len(hash), sha256.Size)
 				s.state.ExitCode = 1
@@ -433,10 +433,7 @@ func (s *Sharer) fixShare(name upspin.PathName, users userList) {
 		s.state.Exitf("internal error: fixShare called on directory %q", name)
 	}
 	packer := s.state.lookupPacker(entry) // Won't be nil.
-	switch packer.Packing() {
-	case upspin.EEPack:
-		// Will repack below.
-	default:
+	if !wrapsKeys(packer) {
 		if !s.quiet {
 			fmt.Fprintf(s.state.Stderr, "%q has %s packing, does not need wrapped keys\n", name, packer)
 		}
@@ -453,6 +450,13 @@ func (s *Sharer) fixShare(name upspin.PathName, users userList) {
 		// Erroneous or wildcard users will have empty keys here, and be ignored.
 		if k := s.lookupKey(user); len(k) > 0 {
 			// TODO: Make this general. This works now only because we are always using ee.
+			if packer.Packing() == upspin.EEPQPack {
+				if _, err := factotum.ParseEncapsulationKey(k); err != nil {
+					fmt.Fprintf(s.state.Stderr, "%q: user %q has no post-quantum key for packing %s: %v\n", entry.Name, user, packer, err)
+					s.state.ExitCode = 1
+					return
+				}
+			}
 			keys = append(keys, k)
 			continue
 		}
@@ -537,4 +541,14 @@ func (u userList) String() string {
 	sort.Sort(u)
 	userString := fmt.Sprint([]upspin.UserName(u))
 	return userString[1 : len(userString)-1]
+}
+
+// wrapsKeys reports whether the packer stores a wrapped file key for each
+// reader in the Packdata, which is what the share command manages.
+func wrapsKeys(packer upspin.Packer) bool {
+	switch packer.Packing() {
+	case upspin.EEPack, upspin.EEPQPack:
+		return true
+	}
+	return false
 }
