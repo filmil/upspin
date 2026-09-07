@@ -46,11 +46,7 @@ The nightly fuzz job is the only asynchronous input.
    committed next to them.
    Allow-list the fixture paths, not the patterns.
    About 30 seconds.
-4. **Lint commit trailers.**
-   A script of about 20 lines that checks every commit on the branch for
-   the trailers the SOP requires on assistant commits: the attribution
-   note, the `Prompts:` block and `Co-Authored-By:`.
-   About five seconds.
+4. **Lint commit trailers.** Landed in PR #65.
 
 ### Crypto unit tests
 
