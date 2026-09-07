@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("p256+\n1\n2\n")

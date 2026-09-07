@@ -393,3 +393,67 @@ func TestKeyLengthLimits(t *testing.T) {
 		t.Errorf("malformed archive record: expected error")
 	}
 }
+
+// The fuzz targets below feed the key parsers input a keyserver or a key
+// file could hand them. They must not panic; every failure must be an
+// error. The seed corpus under testdata/fuzz holds the fixtures and a few
+// malformed variants; bazel test runs the seeds, and a longer run is
+//
+//	bazel run @rules_go//go -- test -run=^$ -fuzz=FuzzParsePublicKey -fuzztime=60s ./factotum
+//
+// which writes any crasher it finds into testdata/fuzz so it stays a
+// regression test.
+
+func fixture(f *testing.F, dir, name string) []byte {
+	b, err := os.ReadFile(filepath.Join("testdata", dir, name))
+	if err != nil {
+		f.Fatal(err)
+	}
+	return b
+}
+
+func FuzzParsePublicKey(f *testing.F) {
+	f.Add(fixture(f, "ok", "public.upspinkey"))
+	f.Add(fixture(f, "pq", "public.upspinkey"))
+	f.Add([]byte("p256\n1\n2\n"))
+	f.Add([]byte("p256+mlkem768\n1\n2\nAAAA\n"))
+	f.Add([]byte(""))
+	f.Fuzz(func(t *testing.T, b []byte) {
+		ParsePublicKey(upspin.PublicKey(b))
+	})
+}
+
+func FuzzParseEncapsulationKey(f *testing.F) {
+	f.Add(fixture(f, "pq", "public.upspinkey"))
+	f.Add(fixture(f, "ok", "public.upspinkey"))
+	f.Add([]byte("p256+mlkem768\n1\n2\n!!!!\n"))
+	f.Fuzz(func(t *testing.T, b []byte) {
+		ParseEncapsulationKey(upspin.PublicKey(b))
+	})
+}
+
+func FuzzParsePrivateKey(f *testing.F) {
+	pq := fixture(f, "pq", "public.upspinkey")
+	classic := fixture(f, "ok", "public.upspinkey")
+	f.Add(pq, fixture(f, "pq", "secret.upspinkey"))
+	f.Add(classic, fixture(f, "ok", "secret.upspinkey"))
+	f.Add(pq, []byte("1\n"))
+	f.Add(classic, []byte("1\n2\n"))
+	f.Add(pq, []byte("1\n!!!!\n"))
+	f.Fuzz(func(t *testing.T, pub, priv []byte) {
+		NewFromKeys(pub, priv, nil)
+	})
+}
+
+func FuzzSecret2Archive(f *testing.F) {
+	pub := fixture(f, "pq-archived", "public.upspinkey")
+	priv := fixture(f, "pq-archived", "secret.upspinkey")
+	f.Add(fixture(f, "pq-archived", "secret2.upspinkey"))
+	f.Add(fixture(f, "ok-archived", "secret2.upspinkey"))
+	f.Add(fixture(f, "bad-archived", "secret2.upspinkey"))
+	f.Add([]byte("# EE\np256+mlkem768\n1\n2\n"))
+	f.Add([]byte("# EE\n"))
+	f.Fuzz(func(t *testing.T, archived []byte) {
+		NewFromKeys(pub, priv, archived)
+	})
+}

@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("p521+mlkem1024\n0\n0\nQUJD\n")
