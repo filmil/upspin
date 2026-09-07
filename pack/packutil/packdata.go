@@ -22,16 +22,19 @@ func PutBytes(dst, src []byte) int {
 
 // GetBytes copies (part of) src to dst, based on a length header.
 // It returns the number of bytes consumed, including the header.
-func GetBytes(dst *[]byte, src []byte) int {
+// It returns an errors.Invalid error, with dst set to empty and nothing
+// consumed, if the header is malformed or names more bytes than src holds
+// or dst has room for. Packdata comes from a directory server, so callers
+// must treat it as untrusted and stop at the first error.
+func GetBytes(dst *[]byte, src []byte) (int, error) {
 	n, vlen := binary.Varint(src)
+	if vlen <= 0 || n < 0 || n > int64(cap(*dst)) || n > int64(len(src)-vlen) {
+		*dst = (*dst)[:0]
+		return 0, errors.E(errors.Invalid, errors.Errorf("packdata: bad length %d with %d bytes left and room for %d", n, len(src), cap(*dst)))
+	}
 	*dst = (*dst)[:n]
 	k := copy(*dst, src[vlen:n+int64(vlen)])
-	if int64(k) != n {
-		// can't happen unless dst too short?
-		*dst = (*dst)[:0]
-		return k + vlen
-	}
-	return k + vlen
+	return k + vlen, nil
 }
 
 // GetPublicKey returns the string representation of a user's public key.

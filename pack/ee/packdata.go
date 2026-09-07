@@ -7,6 +7,7 @@ package ee
 import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
+	"crypto/mlkem"
 	"crypto/sha256"
 	"encoding/binary"
 	"math/big"
@@ -22,6 +23,9 @@ type wrappedKey struct {
 	dkey      []byte // ciphertext symmetric decryption key
 	nonce     []byte
 	ephemeral ecdsa.PublicKey
+	// encap is the ML-KEM ciphertext encapsulated to the recipient's
+	// encapsulation key. It is present only under EEPQPack.
+	encap []byte
 }
 
 // packdata is a structured representation of the DirEntry's Packdata field.
@@ -40,9 +44,12 @@ type packdata struct {
 // Marshal stores the binary-encoded version of packdata in the given slice,
 // copying byte arrays to dst in the order declared in the struct definitions
 // and prefixed with lengths using binary.PutVarint.
+// The packing selects the wire format: EEPack omits the encap field of each
+// wrapped key, and its encoding is unchanged from before EEPQPack existed;
+// EEPQPack writes encap after the ephemeral point.
 // A slice will be allocated and the pointer overwritten if *dst is too short.
-func (pd *packdata) Marshal(dst *[]byte) error {
-	if n := packdataLen(len(pd.wrap)); len(*dst) < n {
+func (pd *packdata) Marshal(dst *[]byte, packing upspin.Packing) error {
+	if n := packdataLen(len(pd.wrap), packing); len(*dst) < n {
 		*dst = make([]byte, n)
 	}
 
@@ -77,6 +84,9 @@ func (pd *packdata) Marshal(dst *[]byte) error {
 		} else {
 			n += packutil.PutBytes((*dst)[n:], nil)
 		}
+		if packing == upspin.EEPQPack {
+			n += packutil.PutBytes((*dst)[n:], w.encap)
+		}
 	}
 
 	// blockSum
@@ -86,51 +96,90 @@ func (pd *packdata) Marshal(dst *[]byte) error {
 	return nil
 }
 
-// Unmarshal parses the given packdata slice and stores its contents in the
-// receiver pd.
-func (pd *packdata) Unmarshal(b []byte) error {
+// minWrappedKeyLen is the smallest encoding of a wrapped key: the all-users
+// wrap under EEPack, with a 32 byte key hash, the 32 byte dkey in clear, an
+// empty nonce and an empty ephemeral point, each with a one byte length.
+// It bounds the number of wrapped keys a packdata can claim.
+const minWrappedKeyLen = 1 + sha256.Size + 1 + aesKeyLen + 1 + 1 + 1
+
+// Unmarshal parses the given packdata slice, in the wire format of the
+// given packing, and stores its contents in the receiver pd.
+// Packdata comes from a directory server and is treated as untrusted: every
+// field must have one of the lengths Marshal writes, the wrapped key count
+// is bounded by the bytes that remain, the ML-KEM ciphertext buffer is sized
+// from its own header rather than the largest KEM, and no trailing bytes
+// are allowed.
+func (pd *packdata) Unmarshal(b []byte, packing upspin.Packing) error {
 	if len(b) == 0 {
 		return errors.Str("nil packdata")
 	}
 	n := 0
+	var err error
+	// next reads the next length-prefixed field into dst. On failure it
+	// records the error and returns false, so callers can return err.
+	next := func(dst *[]byte) bool {
+		var k int
+		k, err = packutil.GetBytes(dst, b[n:])
+		n += k
+		return err == nil
+	}
+	malformed := func(what string, got int) error {
+		return errors.E(errors.Invalid, errors.Errorf("malformed packdata: %s of %d bytes", what, got))
+	}
 
-	// sig
-	pd.sig.R = big.NewInt(0)
-	pd.sig.S = big.NewInt(0)
+	// sig, sig2
 	buf := make([]byte, marshalBufLen)
-	n += packutil.GetBytes(&buf, b[n:])
-	pd.sig.R.SetBytes(buf)
-	n += packutil.GetBytes(&buf, b[n:])
-	pd.sig.S.SetBytes(buf)
-
-	// sig2
-	pd.sig2.R = big.NewInt(0)
-	pd.sig2.S = big.NewInt(0)
-	n += packutil.GetBytes(&buf, b[n:])
-	pd.sig2.R.SetBytes(buf)
-	n += packutil.GetBytes(&buf, b[n:])
-	pd.sig2.S.SetBytes(buf)
+	pd.sig.R, pd.sig.S = big.NewInt(0), big.NewInt(0)
+	pd.sig2.R, pd.sig2.S = big.NewInt(0), big.NewInt(0)
+	for _, i := range []*big.Int{pd.sig.R, pd.sig.S, pd.sig2.R, pd.sig2.S} {
+		if !next(&buf) {
+			return err
+		}
+		i.SetBytes(buf)
+	}
 
 	// wrap
 	nwrap64, vlen := binary.Varint(b[n:])
-	n += vlen
-	nwrap := int(nwrap64)
-	if int64(nwrap) != nwrap64 {
-		return errors.Errorf("implausible number of wrapped keys: %d\n", nwrap64)
+	if vlen <= 0 {
+		return errors.E(errors.Invalid, "malformed packdata: wrapped key count")
 	}
-	pd.wrap = make([]wrappedKey, nwrap)
-	for i := 0; i < nwrap; i++ {
-		var w wrappedKey
+	n += vlen
+	if nwrap64 < 0 || nwrap64 > int64((len(b)-n)/minWrappedKeyLen) {
+		return errors.E(errors.Invalid, errors.Errorf("implausible number of wrapped keys: %d", nwrap64))
+	}
+	pd.wrap = make([]wrappedKey, int(nwrap64))
+	for i := range pd.wrap {
+		w := &pd.wrap[i]
 		w.keyHash = make([]byte, sha256.Size)
+		if !next(&w.keyHash) {
+			return err
+		}
+		if len(w.keyHash) != sha256.Size {
+			return malformed("key hash", len(w.keyHash))
+		}
+		// A reader's dkey is sealed with a GCM tag; the all-users dkey is in clear.
 		w.dkey = make([]byte, aesKeyLen+gcmTagSize)
+		if !next(&w.dkey) {
+			return err
+		}
+		if len(w.dkey) != aesKeyLen && len(w.dkey) != aesKeyLen+gcmTagSize {
+			return malformed("wrapped key", len(w.dkey))
+		}
 		w.nonce = make([]byte, gcmStandardNonceSize)
+		if !next(&w.nonce) {
+			return err
+		}
+		if len(w.nonce) != 0 && len(w.nonce) != gcmStandardNonceSize {
+			return malformed("nonce", len(w.nonce))
+		}
 		w.ephemeral = ecdsa.PublicKey{X: big.NewInt(0), Y: big.NewInt(0)}
-		n += packutil.GetBytes(&w.keyHash, b[n:])
-		n += packutil.GetBytes(&w.dkey, b[n:])
-		n += packutil.GetBytes(&w.nonce, b[n:])
-		n += packutil.GetBytes(&buf, b[n:])
+		if !next(&buf) {
+			return err
+		}
 		w.ephemeral.X.SetBytes(buf)
-		n += packutil.GetBytes(&buf, b[n:])
+		if !next(&buf) {
+			return err
+		}
 		w.ephemeral.Y.SetBytes(buf)
 		if w.ephemeral.Y.BitLen() > 393 {
 			w.ephemeral.Curve = elliptic.P521()
@@ -139,22 +188,41 @@ func (pd *packdata) Unmarshal(b []byte) error {
 		} else {
 			w.ephemeral.Curve = elliptic.P256()
 		}
-		pd.wrap[i] = w
+		if packing == upspin.EEPQPack {
+			// Read the ciphertext length first: it must be one of the
+			// ML-KEM sizes, or zero for the all-users wrap, and the buffer
+			// is allocated to exactly that size.
+			l, vlen := binary.Varint(b[n:])
+			if vlen <= 0 || (l != 0 && l != mlkem.CiphertextSize768 && l != mlkem.CiphertextSize1024) {
+				return malformed("ML-KEM ciphertext", int(l))
+			}
+			w.encap = make([]byte, l)
+			if !next(&w.encap) {
+				return err
+			}
+		}
 	}
 
 	// blockSum
 	pd.blockSum = make([]byte, sha256.Size)
-	n += packutil.GetBytes(&pd.blockSum, b[n:])
-	if pd.blockSum == nil {
-		return errors.Str("block checksum is required")
+	if !next(&pd.blockSum) {
+		return err
 	}
-
+	if len(pd.blockSum) != sha256.Size {
+		return errors.E(errors.Invalid, "block checksum is required")
+	}
+	if n != len(b) {
+		return errors.E(errors.Invalid, errors.Errorf("malformed packdata: %d bytes parsed of %d", n, len(b)))
+	}
 	return nil
 }
 
+// encapBufLen is the largest ML-KEM ciphertext, that of ML-KEM-1024.
+const encapBufLen = mlkem.CiphertextSize1024
+
 // packdataLen returns the maximum length of a packdata slice for the given
-// number of wrapped keys.
-func packdataLen(nwrap int) int {
+// number of wrapped keys under the given packing.
+func packdataLen(nwrap int, packing upspin.Packing) int {
 	intLen := binary.MaxVarintLen64
 
 	// nWrappedKey is the size of a single encoded wrappedKey
@@ -162,6 +230,9 @@ func packdataLen(nwrap int) int {
 	nWrappedKey += intLen + aesKeyLen + gcmTagSize // dkey
 	nWrappedKey += intLen + gcmStandardNonceSize   // nonce
 	nWrappedKey += 2 * (intLen + marshalBufLen)    // ephemeral
+	if packing == upspin.EEPQPack {
+		nWrappedKey += intLen + encapBufLen // encap
+	}
 
 	n := 4 * (intLen + marshalBufLen) // (R,S) for (sig, sig2)
 	n += intLen                       // len(wrap)
@@ -177,7 +248,10 @@ func packdataLen(nwrap int) int {
 	//   aesKeyLen=32
 	//   gcmTagSize=16
 	//   gcmStandardNonceSize=12
-	// and therefore n = 356 + nwrap*274.
+	//   encapBufLen=1568
+	// and therefore n = 356 + nwrap*274 for EEPack
+	// and n = 356 + nwrap*1852 for EEPQPack.
+	// The sizes actually written are smaller; see TestPackdataSizes.
 	// On a 32-bit machine, this supports well over a million readers.
 	// We would redesign to use group keys long before that.
 	return n

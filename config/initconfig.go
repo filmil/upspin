@@ -26,7 +26,7 @@ import (
 
 	// Needed because the default packing is "ee" and its
 	// implementation is referenced if no packing is specified.
-	_ "upspin.io/pack/ee"
+	"upspin.io/pack/ee"
 )
 
 var inTest = false // Generate errors instead of logs for certain problems.
@@ -64,8 +64,11 @@ const (
 	dirserver   = "dirserver"
 	storeserver = "storeserver"
 	packing     = "packing"
-	secrets     = "secrets"
-	cache       = "cache"
+	// requirePacking names a packing that every regular file must have;
+	// see client/clientutil.CheckPacking.
+	requirePacking = "requirepacking"
+	secrets        = "secrets"
+	cache          = "cache"
 )
 
 // ErrNoFactotum indicates that the returned config contains no Factotum, and
@@ -98,8 +101,10 @@ func FromFile(name string) (upspin.Config, error) {
 // the io.Reader, typically a configuration file.
 //
 // A configuration file should be of the format
-//   # lines that begin with a hash are ignored
-//   key = value
+//
+//	# lines that begin with a hash are ignored
+//	key = value
+//
 // where key may be one of username, keyserver, dirserver, storeserver,
 // packing, secrets, or tlscerts.
 //
@@ -131,12 +136,13 @@ func FromFile(name string) (upspin.Config, error) {
 func InitConfig(r io.Reader) (upspin.Config, error) {
 	const op errors.Op = "config.InitConfig"
 	vals := map[string]string{
-		username:    string(defaultUserName),
-		packing:     defaultPacking.String(),
-		keyserver:   "",
-		dirserver:   "",
-		storeserver: "",
-		cache:       "",
+		username:       string(defaultUserName),
+		packing:        defaultPacking.String(),
+		requirePacking: "",
+		keyserver:      "",
+		dirserver:      "",
+		storeserver:    "",
+		cache:          "",
 	}
 	other := make(map[string]interface{})
 
@@ -187,7 +193,20 @@ func InitConfig(r io.Reader) (upspin.Config, error) {
 	if packer == nil {
 		return nil, errors.E(op, errors.Invalid, errors.Errorf("unknown packing %q", vals[packing]))
 	}
+	if packer.Packing() == upspin.EEPQPack && !ee.EEPQEnabled() {
+		return nil, errors.E(op, errors.Permission, errors.Errorf("packing %q requires the -eepq flag", vals[packing]))
+	}
 	cfg = SetPacking(cfg, packer.Packing())
+	if name := vals[requirePacking]; name != "" {
+		required := pack.LookupByName(name)
+		if required == nil {
+			return nil, errors.E(op, errors.Invalid, errors.Errorf("unknown requirepacking %q", name))
+		}
+		if required.Packing() == upspin.EEPQPack && !ee.EEPQEnabled() {
+			return nil, errors.E(op, errors.Permission, errors.Errorf("requirepacking %q requires the -eepq flag", name))
+		}
+		cfg = SetValue(cfg, requirePacking, name)
+	}
 
 	dir := ""
 	defaultDir := false

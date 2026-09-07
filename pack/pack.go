@@ -15,7 +15,10 @@ import (
 
 var (
 	packers = make(map[upspin.Packing]upspin.Packer)
-	mu      sync.Mutex
+	// disabled holds packings that are registered but must not be used;
+	// see SetEnabled.
+	disabled = make(map[upspin.Packing]bool)
+	mu       sync.Mutex
 )
 
 // Register binds a Packing code to the implementation of its algorithm.
@@ -36,7 +39,35 @@ func Register(packer upspin.Packer) error {
 	return nil
 }
 
+// SetEnabled marks a packing as usable or not, for the whole process.
+// This is the one place that state lives; the -eepq flag, the ee packer,
+// config parsing and valid.DirEntry all consult it. A disabled packing
+// stays registered and Lookup still returns it, so that every operation on
+// it can fail with an error that names the flag instead of "unknown
+// packing"; the packer itself, config and valid enforce the refusal. A
+// packer that must be opted into, such as EEPQPack, disables itself in
+// its init function. The gate is advisory: any code in the process can
+// call SetEnabled, which is acceptable for an experiment.
+func SetEnabled(p upspin.Packing, on bool) {
+	mu.Lock()
+	defer mu.Unlock()
+	if on {
+		delete(disabled, p)
+	} else {
+		disabled[p] = true
+	}
+}
+
+// Enabled reports whether a packing is registered and not disabled.
+func Enabled(p upspin.Packing) bool {
+	mu.Lock()
+	defer mu.Unlock()
+	_, registered := packers[p]
+	return registered && !disabled[p]
+}
+
 // Lookup returns the implementation of the specified Packing, or nil if none is registered.
+// A disabled packing is returned too; see SetEnabled.
 func Lookup(p upspin.Packing) upspin.Packer {
 	mu.Lock()
 	packer := packers[p]
@@ -45,6 +76,7 @@ func Lookup(p upspin.Packing) upspin.Packer {
 }
 
 // LookupByName returns the implementation of the specified Packing, or nil if none is registered.
+// A disabled packing is returned too; see SetEnabled.
 func LookupByName(name string) upspin.Packer {
 	mu.Lock()
 	defer mu.Unlock()

@@ -17,5 +17,8 @@ go_test(
     srcs = ["factotum_test.go"],
     data = glob(["testdata/**"]),
     embed = [":factotum"],
-    deps = ["//upspin"],
+    deps = [
+        "//errors",
+        "//upspin",
+    ],
 )

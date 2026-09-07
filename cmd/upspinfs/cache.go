@@ -259,6 +259,9 @@ func (cf *cachedFile) attachDirEntry(config upspin.Config, de *upspin.DirEntry, 
 	cf.blocksLoaded = make([]bool, len(de.Blocks))
 	if !downloaded {
 		// Create an unpacker to decrypt the file blocks.
+		if err := clientutil.CheckPacking(config, de); err != nil {
+			return err
+		}
 		packer := pack.Lookup(de.Packing)
 		if packer == nil {
 			return errors.E(de.Name, errors.Errorf("unrecognized Packing %d", de.Packing))

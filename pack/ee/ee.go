@@ -3,6 +3,10 @@
 // license that can be found in the LICENSE file.
 
 // Package ee implements an elliptic-curve end-to-end encryption packer.
+// It registers two packings that share all code except key wrapping:
+// EEPack wraps the file key for each reader with ECDH, and EEPQPack wraps
+// it with a hybrid of ECDH and ML-KEM so that the wrapping also resists a
+// quantum attacker.
 package ee
 
 // Upspin ee crypto summary:
@@ -10,6 +14,10 @@ package ee
 // wrapping the symmetric encryption key with Bob's public key, signing the file using
 // her own elliptic curve private key, and sending the ciphertext to a storage server
 // and metadata to a directory server.
+//
+// Under EEPQPack the wrapping step also encapsulates a second shared secret
+// to Bob's ML-KEM encapsulation key, and the two secrets are combined by HKDF.
+// Recovering the file key then needs both the ECDH and the ML-KEM secret.
 
 import (
 	"bytes"
@@ -19,8 +27,10 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/binary"
 	"fmt"
 	"io"
+	"math/big"
 
 	"golang.org/x/crypto/hkdf"
 
@@ -39,7 +49,12 @@ type keyHashArray [sha256.Size]byte // sometimes we need the array
 
 var _ upspin.Packer = ee{}
 
-type ee struct{}
+// ee is the packer for EEPack and EEPQPack. The packing field selects the
+// key wrapping scheme and the Packdata wire format; everything else is
+// shared.
+type ee struct {
+	packing upspin.Packing
+}
 
 const (
 	aesKeyLen            = 32 // AES-256 because public cloud should withstand multifile multikey attack.
@@ -49,7 +64,43 @@ const (
 )
 
 func init() {
-	pack.Register(ee{})
+	pack.Register(ee{packing: upspin.EEPack})
+	pack.Register(ee{packing: upspin.EEPQPack})
+	// EEPQPack is opt-in; see SetEEPQEnabled.
+	pack.SetEnabled(upspin.EEPQPack, false)
+}
+
+// EEPQPack is opt-in. It is off by default and turned on by the -eepq
+// command line flag (see upspin.io/flags), so that the post-quantum
+// packing and its wire format stay opt-in until they have had more
+// review. The state lives in the pack registry, pack.Enabled, and nowhere
+// else. While it is off, every operation of this packer fails with an
+// error that names the flag, config parsing refuses "packing: eepq",
+// valid.DirEntry refuses entries in the packing (so a directory server
+// rejects them), and CreateKeys refuses post-quantum key types.
+//
+// The flag does not contain the key format: a post-quantum public key has
+// four lines, and a binary from before this change cannot parse it at
+// all. See doc/security.filmil.md for what must be upgraded before a user
+// rotates to a post-quantum key.
+
+// SetEEPQEnabled turns the EEPQPack packing and post-quantum key generation
+// on or off for this process. The -eepq flag calls it; tests may too. The
+// gate is advisory: any code in the process can call it.
+func SetEEPQEnabled(on bool) { pack.SetEnabled(upspin.EEPQPack, on) }
+
+// EEPQEnabled reports whether the EEPQPack packing is enabled.
+func EEPQEnabled() bool { return pack.Enabled(upspin.EEPQPack) }
+
+var errEEPQDisabled = errors.E(errors.Permission, errors.Str("the eepq packing is disabled; run with the -eepq flag to enable it"))
+
+// checkEnabled returns errEEPQDisabled for an EEPQPack packer that has not
+// been enabled, and nil otherwise.
+func (ee ee) checkEnabled() error {
+	if ee.packing == upspin.EEPQPack && !EEPQEnabled() {
+		return errEEPQDisabled
+	}
+	return nil
 }
 
 var (
@@ -63,7 +114,7 @@ var (
 var errNotOnCurve = errors.Str("a crypto attack was attempted against you; see safecurves.cr.yp.to/twist.html for details")
 
 func (ee ee) Packing() upspin.Packing {
-	return upspin.EEPack
+	return ee.packing
 }
 
 func (ee ee) PackLen(cfg upspin.Config, cleartext []byte, d *upspin.DirEntry) int {
@@ -81,11 +132,14 @@ func (ee ee) UnpackLen(cfg upspin.Config, ciphertext []byte, d *upspin.DirEntry)
 }
 
 func (ee ee) String() string {
-	return "ee"
+	return ee.packing.String()
 }
 
 func (ee ee) Pack(cfg upspin.Config, d *upspin.DirEntry) (upspin.BlockPacker, error) {
 	const op errors.Op = "pack/ee.Pack"
+	if err := ee.checkEnabled(); err != nil {
+		return nil, errors.E(op, d.Name, err)
+	}
 	if err := pack.CheckPacking(ee, d); err != nil {
 		return nil, errors.E(op, errors.Invalid, d.Name, err)
 	}
@@ -102,6 +156,7 @@ func (ee ee) Pack(cfg upspin.Config, d *upspin.DirEntry) (upspin.BlockPacker, er
 	}
 
 	return &blockPacker{
+		packer: ee,
 		cfg:    cfg,
 		entry:  d,
 		cipher: blockCipher,
@@ -131,6 +186,7 @@ func newKeyAndCipher() ([]byte, cipher.Block, error) {
 }
 
 type blockPacker struct {
+	packer ee
 	cfg    upspin.Config
 	entry  *upspin.DirEntry
 	cipher cipher.Block
@@ -201,7 +257,7 @@ func (bp *blockPacker) Close() error {
 	if err != nil {
 		return errors.E(op, name, err)
 	}
-	pd.wrap[0], err = gcmWrap(rp, p, bp.dkey)
+	pd.wrap[0], err = bp.packer.wrap(rp, p, bp.dkey)
 	if err != nil {
 		return errors.E(op, name, err)
 	}
@@ -229,7 +285,7 @@ func (bp *blockPacker) Close() error {
 			if err != nil {
 				return errors.E(op, name, owner, err)
 			}
-			wrap, err := gcmWrap(ownerKey, p, bp.dkey)
+			wrap, err := bp.packer.wrap(ownerKey, p, bp.dkey)
 			if err != nil {
 				return errors.E(op, name, owner, err)
 			}
@@ -247,11 +303,14 @@ func (bp *blockPacker) Close() error {
 	if err != nil {
 		return errors.E(op, err)
 	}
-	return pd.Marshal(&bp.entry.Packdata)
+	return pd.Marshal(&bp.entry.Packdata, bp.packer.packing)
 }
 
 func (ee ee) Unpack(cfg upspin.Config, d *upspin.DirEntry) (upspin.BlockUnpacker, error) {
 	const op errors.Op = "pack/ee.Unpack"
+	if err := ee.checkEnabled(); err != nil {
+		return nil, errors.E(op, d.Name, err)
+	}
 	if err := pack.CheckPacking(ee, d); err != nil {
 		return nil, errors.E(op, errors.Invalid, d.Name, err)
 	}
@@ -262,7 +321,7 @@ func (ee ee) Unpack(cfg upspin.Config, d *upspin.DirEntry) (upspin.BlockUnpacker
 	}
 
 	var pd packdata
-	if err := pd.Unmarshal(d.Packdata); err != nil {
+	if err := pd.Unmarshal(d.Packdata, ee.packing); err != nil {
 		return nil, errors.E(op, d.Name, err)
 	}
 
@@ -300,7 +359,7 @@ func (ee ee) Unpack(cfg upspin.Config, d *upspin.DirEntry) (upspin.BlockUnpacker
 			dkey = w.dkey
 		} else {
 			// Decode my wrapped key using my private key.
-			dkey, err = aesUnwrap(f, w)
+			dkey, err = aesUnwrap(ee.packing, f, w)
 			if err != nil {
 				return nil, errors.E(op, d.Name, me, err)
 			}
@@ -367,8 +426,11 @@ func (bp *blockUnpacker) Close() error {
 // associated ciphertext.
 func (ee ee) ReaderHashes(pd []byte) (readers [][]byte, err error) {
 	const op errors.Op = "pack/ee.ReaderHashes"
+	if err := ee.checkEnabled(); err != nil {
+		return nil, errors.E(op, err)
+	}
 	var d packdata
-	if err := d.Unmarshal(pd); err != nil {
+	if err := d.Unmarshal(pd, ee.packing); err != nil {
 		return nil, errors.E(op, errors.Invalid, err)
 	}
 	readers = make([][]byte, len(d.wrap))
@@ -379,7 +441,16 @@ func (ee ee) ReaderHashes(pd []byte) (readers [][]byte, err error) {
 }
 
 // Share extracts the file decryption key from the packdata, wraps it for a revised list of readers, and updates packdata.
+// Under EEPQPack a reader whose key has no ML-KEM component cannot be
+// wrapped for and is left out of the new list, with an error logged.
 func (ee ee) Share(cfg upspin.Config, readers []upspin.PublicKey, packdataSlice []*[]byte) {
+	if err := ee.checkEnabled(); err != nil {
+		log.Error.Printf("pack/ee.Share: %v", err)
+		for j := range packdataSlice {
+			packdataSlice[j] = nil
+		}
+		return
+	}
 	// A Packdata holds a cipherSum, a Signature, and a list of wrapped keys.
 	// Share updates the wrapped keys, leaving the other two fields unchanged.
 	// For efficiency, Share() reuses the wrapped key for readers common to the old and new lists.
@@ -406,7 +477,7 @@ func (ee ee) Share(cfg upspin.Config, readers []upspin.PublicKey, packdataSlice 
 		var dkey []byte
 		alreadyWrapped := make(map[keyHashArray]*wrappedKey)
 		var pd packdata
-		if err := pd.Unmarshal(*d); err != nil {
+		if err := pd.Unmarshal(*d, ee.packing); err != nil {
 			log.Error.Printf("pack/ee.Share: packdata unmarshal failed: %v", err)
 			for jj := j; jj < len(packdataSlice); jj++ {
 				packdataSlice[jj] = nil
@@ -425,7 +496,7 @@ func (ee ee) Share(cfg upspin.Config, readers []upspin.PublicKey, packdataSlice 
 					// to unwrap dkey, we can only use our own private keys
 					continue
 				}
-				dkey, err = aesUnwrap(cfg.Factotum(), w)
+				dkey, err = aesUnwrap(ee.packing, cfg.Factotum(), w)
 				if err != nil {
 					log.Error.Printf("pack/ee: dkey unwrap failed: %v", err)
 					break
@@ -453,8 +524,9 @@ func (ee ee) Share(cfg upspin.Config, readers []upspin.PublicKey, packdataSlice 
 			}
 			pw, ok := alreadyWrapped[hash[i]]
 			if !ok { // then need to wrap
-				w, err := gcmWrap(readers[i], pubkey[i], dkey)
+				w, err := ee.wrap(readers[i], pubkey[i], dkey)
 				if err != nil {
+					log.Error.Printf("pack/ee.Share: cannot wrap for reader with key hash %x: %v", hash[i][:4], err)
 					continue
 				}
 				pw = &w
@@ -464,7 +536,7 @@ func (ee ee) Share(cfg upspin.Config, readers []upspin.PublicKey, packdataSlice 
 
 		// Rebuild packdataSlice[j] from existing sig and new wrapped keys.
 		var dst []byte
-		if pd.Marshal(&dst) != nil {
+		if pd.Marshal(&dst, ee.packing) != nil {
 			packdataSlice[j] = nil // Tell caller this packdata was skipped.
 		} else {
 			*packdataSlice[j] = dst
@@ -485,6 +557,9 @@ func (ee ee) SetTime(cfg upspin.Config, d *upspin.DirEntry, t upspin.Time) error
 }
 
 func (ee ee) updateDirEntry(op errors.Op, cfg upspin.Config, d *upspin.DirEntry, newName upspin.PathName, newTime upspin.Time) error {
+	if err := ee.checkEnabled(); err != nil {
+		return errors.E(op, d.Name, err)
+	}
 	parsed, err := path.Parse(d.Name)
 	if err != nil {
 		return errors.E(op, err)
@@ -503,7 +578,7 @@ func (ee ee) updateDirEntry(op errors.Op, cfg upspin.Config, d *upspin.DirEntry,
 	}
 
 	var pd packdata
-	if err := pd.Unmarshal(d.Packdata); err != nil {
+	if err := pd.Unmarshal(d.Packdata, ee.packing); err != nil {
 		return errors.E(op, errors.Invalid, d.Name, err)
 	}
 
@@ -550,7 +625,7 @@ func (ee ee) updateDirEntry(op errors.Op, cfg upspin.Config, d *upspin.DirEntry,
 		dkey = w.dkey
 	} else {
 		// Decode my wrapped key using my private key
-		dkey, err = aesUnwrap(f, w)
+		dkey, err = aesUnwrap(ee.packing, f, w)
 		if err != nil {
 			return errors.E(op, d.Name, "unwrap failed")
 		}
@@ -581,7 +656,7 @@ func (ee ee) updateDirEntry(op errors.Op, cfg upspin.Config, d *upspin.DirEntry,
 
 	// Serialize packer metadata. We do not reallocate Packdata since the new data
 	// should be the same size or smaller.
-	if err := pd.Marshal(&d.Packdata); err != nil {
+	if err := pd.Marshal(&d.Packdata, ee.packing); err != nil {
 		return errors.E(op, d.Name, err)
 	}
 	d.Name = newName
@@ -592,6 +667,9 @@ func (ee ee) updateDirEntry(op errors.Op, cfg upspin.Config, d *upspin.DirEntry,
 // Countersign uses the key in factotum f to add a signature to a DirEntry that is already signed by oldKey.
 func (ee ee) Countersign(oldKey upspin.PublicKey, f upspin.Factotum, d *upspin.DirEntry) error {
 	const op errors.Op = "pack/ee.Countersign"
+	if err := ee.checkEnabled(); err != nil {
+		return errors.E(op, d.Name, err)
+	}
 	if d.IsDir() {
 		return errors.E(op, d.Name, errors.IsDir, "cannot sign directory")
 	}
@@ -604,7 +682,7 @@ func (ee ee) Countersign(oldKey upspin.PublicKey, f upspin.Factotum, d *upspin.D
 
 	// Extract existing signatures, but keep only the newest.
 	var pd packdata
-	if err := pd.Unmarshal(d.Packdata); err != nil {
+	if err := pd.Unmarshal(d.Packdata, ee.packing); err != nil {
 		return errors.E(op, d.Name, errors.Invalid, err)
 	}
 
@@ -621,7 +699,7 @@ func (ee ee) Countersign(oldKey upspin.PublicKey, f upspin.Factotum, d *upspin.D
 	if !wrapFound {
 		return errors.E(op, d.Name, errNoWrappedKey)
 	}
-	dkey, err := aesUnwrap(f, w)
+	dkey, err := aesUnwrap(ee.packing, f, w)
 	if err != nil {
 		return errors.E(op, d.Name, "unwrap failed")
 	}
@@ -639,22 +717,25 @@ func (ee ee) Countersign(oldKey upspin.PublicKey, f upspin.Factotum, d *upspin.D
 	}
 	pd.sig2 = pd.sig
 	pd.sig = sig1
-	return pd.Marshal(&d.Packdata)
+	return pd.Marshal(&d.Packdata, ee.packing)
 }
 
 func (ee ee) UnpackableByAll(d *upspin.DirEntry) (bool, error) {
 	const op errors.Op = "pack/ee.UnpackableByAll"
+	if err := ee.checkEnabled(); err != nil {
+		return false, errors.E(op, d.Name, err)
+	}
 
-	if d.Packing != upspin.EEPack {
+	if d.Packing != ee.packing {
 		p := pack.Lookup(d.Packing)
 		if p == nil {
-			return false, errors.E(op, d.Name, errors.Errorf("entry has packing %s, need EEPack", d.Packing))
+			return false, errors.E(op, d.Name, errors.Errorf("entry has packing %s, need %s", d.Packing, ee.packing))
 		}
-		return false, errors.E(op, d.Name, errors.Errorf("entry has packing %s, need EEPack", p))
+		return false, errors.E(op, d.Name, errors.Errorf("entry has packing %s, need %s", p, ee.packing))
 	}
 
 	var pd packdata
-	if err := pd.Unmarshal(d.Packdata); err != nil {
+	if err := pd.Unmarshal(d.Packdata, ee.packing); err != nil {
 		return false, errors.E(op, d.Name, err)
 	}
 	for _, w := range pd.wrap {
@@ -665,8 +746,12 @@ func (ee ee) UnpackableByAll(d *upspin.DirEntry) (bool, error) {
 	return false, nil
 }
 
-// gcmWrap implements NIST 800-56Ar2; see also RFC6637 §8.
-func gcmWrap(pub upspin.PublicKey, R *ecdsa.PublicKey, dkey []byte) (w wrappedKey, err error) {
+// wrap encrypts dkey for the holder of the public key pub, whose ECDSA part
+// is R. Under EEPack it implements NIST 800-56Ar2; see also RFC6637 §8.
+// Under EEPQPack it also encapsulates to the ML-KEM part of pub, and fails
+// with errors.NotExist if pub has none. See strongKey for how the two
+// shared secrets are combined.
+func (ee ee) wrap(pub upspin.PublicKey, R *ecdsa.PublicKey, dkey []byte) (w wrappedKey, err error) {
 	// Step 1.  Create shared Diffie-Hellman secret.
 	// v, V=vG  ephemeral key pair
 	// S = vR   shared point
@@ -684,6 +769,17 @@ func gcmWrap(pub upspin.PublicKey, R *ecdsa.PublicKey, dkey []byte) (w wrappedKe
 	S := elliptic.Marshal(curve, sx, sy)
 	w.ephemeral = ecdsa.PublicKey{Curve: curve, X: v.X, Y: v.Y}
 
+	// Step 1b (EEPQPack only). Encapsulate a second shared secret K to the
+	// reader's ML-KEM key. The ciphertext travels in the wrapped key.
+	var K []byte
+	if ee.packing == upspin.EEPQPack {
+		ek, err := factotum.ParseEncapsulationKey(pub)
+		if err != nil {
+			return w, err
+		}
+		K, w.encap = ek.Encapsulate()
+	}
+
 	// Step 2.  Convert shared secret to strong secret via HKDF.
 	w.nonce = make([]byte, gcmStandardNonceSize)
 	_, err = rand.Read(w.nonce)
@@ -691,11 +787,15 @@ func gcmWrap(pub upspin.PublicKey, R *ecdsa.PublicKey, dkey []byte) (w wrappedKe
 		return
 	}
 	w.keyHash = factotum.KeyHash(pub)
-	mess := []byte(fmt.Sprintf("%02x:%x:%x", upspin.EEPack, w.keyHash, w.nonce))
-	hash := sha256.New
-	hkdf := hkdf.New(hash, S, nil, mess) // TODO(security-reviewer) reconsider salt
-	strong := make([]byte, aesKeyLen)
-	_, err = io.ReadFull(hkdf, strong)
+	Rb, err := marshalPoint(curve, R.X, R.Y)
+	if err != nil {
+		return
+	}
+	Vb, err := marshalPoint(curve, v.X, v.Y)
+	if err != nil {
+		return
+	}
+	strong, err := strongKey(ee.packing, w, Rb, Vb, S, K)
 	if err != nil {
 		return
 	}
@@ -715,9 +815,76 @@ func gcmWrap(pub upspin.PublicKey, R *ecdsa.PublicKey, dkey []byte) (w wrappedKe
 	return
 }
 
+// eepqLabel is the domain separation label of the EEPQPack key combiner.
+const eepqLabel = "upspin.io/pack/ee eepq v1"
+
+// strongKey derives the AES-256 key that seals dkey inside w.
+//
+// Under EEPack the derivation is unchanged from the original ee design:
+// HKDF-SHA256 with the ECDH shared point S as the keying material and
+// "packing:keyHash:nonce" as the info string.
+//
+// Under EEPQPack it is an HKDF concatenation combiner in the style of
+// X-Wing (draft-connolly-cfrg-xwing-kem), but it is not X-Wing: it uses a
+// NIST curve instead of X25519 and HKDF-SHA256 instead of SHA3-256, and
+// has no proof of its own. The keying material is the concatenation of
+// the ML-KEM shared secret K, the ECDH shared point S, the ephemeral point
+// V, the reader's public point R, the ML-KEM ciphertext held in w and a
+// fixed label, each prefixed by its length as a 4 byte big-endian
+// integer, so the parse of the keying material is unambiguous whatever
+// the sizes. The info string is the same as under EEPack; w.keyHash in it
+// is the SHA-256 of the reader's whole public key, so the derived key is
+// also bound to the reader's key type. Either secret alone is useless: an
+// attacker who breaks ECDH still needs K, and one who breaks ML-KEM still
+// needs S.
+//
+// The HKDF salt is nil in both cases, which makes HKDF-Extract an HMAC
+// with a fixed key. That is the same role the unkeyed hash plays in the
+// X-Wing combiner, and the keying material is uniformly random when either
+// KEM is secure, so no salt is needed.
+func strongKey(packing upspin.Packing, w wrappedKey, R, V, S, K []byte) ([]byte, error) {
+	var ikm []byte
+	switch packing {
+	case upspin.EEPack:
+		ikm = S
+	case upspin.EEPQPack:
+		for _, part := range [][]byte{K, S, V, R, w.encap, []byte(eepqLabel)} {
+			ikm = binary.BigEndian.AppendUint32(ikm, uint32(len(part)))
+			ikm = append(ikm, part...)
+		}
+	default:
+		return nil, errors.Errorf("no key derivation for packing %s", packing)
+	}
+	mess := []byte(fmt.Sprintf("%02x:%x:%x", packing, w.keyHash, w.nonce))
+	hash := sha256.New
+	hkdf := hkdf.New(hash, ikm, nil, mess)
+	strong := make([]byte, aesKeyLen)
+	if _, err := io.ReadFull(hkdf, strong); err != nil {
+		return nil, err
+	}
+	return strong, nil
+}
+
+// marshalPoint returns the uncompressed SEC 1 encoding of the point (x, y),
+// the same bytes elliptic.Marshal produces, without its panic on a point
+// that is not on the curve: a point from stored Packdata must not crash
+// the reader. A coordinate that does not fit the curve's field is an
+// error, never a silent substitute value.
+func marshalPoint(curve elliptic.Curve, x, y *big.Int) ([]byte, error) {
+	byteLen := (curve.Params().BitSize + 7) / 8
+	if x == nil || y == nil || x.Sign() < 0 || y.Sign() < 0 || x.BitLen() > 8*byteLen || y.BitLen() > 8*byteLen {
+		return nil, errNotOnCurve
+	}
+	b := make([]byte, 1+2*byteLen)
+	b[0] = 4 // uncompressed point
+	x.FillBytes(b[1 : 1+byteLen])
+	y.FillBytes(b[1+byteLen:])
+	return b, nil
+}
+
 // Extract per-file symmetric key from w.
 // If error, len(dkey)==0.
-func aesUnwrap(f upspin.Factotum, w wrappedKey) (dkey []byte, err error) {
+func aesUnwrap(packing upspin.Packing, f upspin.Factotum, w wrappedKey) (dkey []byte, err error) {
 	myPub, err := f.PublicKeyFromHash(w.keyHash)
 	if err != nil {
 		return nil, err
@@ -734,14 +901,40 @@ func aesUnwrap(f upspin.Factotum, w wrappedKey) (dkey []byte, err error) {
 	}
 	S := elliptic.Marshal(pub.Curve, sx, sy)
 
+	// Step 1b (EEPQPack only). Recover the ML-KEM shared secret K.
+	// The ciphertext must have the size of my key's KEM; that is part of
+	// the wire format, not something to leave to decapsulation.
+	var K []byte
+	if packing == upspin.EEPQPack {
+		kem, err := factotum.KEMOf(myPub)
+		if err != nil {
+			return nil, err
+		}
+		if len(w.encap) != kem.CiphertextSize() {
+			return nil, errors.E(errors.Invalid, errors.Errorf("ML-KEM ciphertext of %d bytes for key type with %d byte ciphertexts", len(w.encap), kem.CiphertextSize()))
+		}
+		dec, ok := f.(factotum.Decapsulator)
+		if !ok {
+			return nil, errors.E(errors.Invalid, "factotum does not support ML-KEM decapsulation")
+		}
+		K, err = dec.Decapsulate(w.keyHash, w.encap)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	// Step 2.  Convert shared secret to strong secret via HKDF.
-	mess := []byte(fmt.Sprintf("%02x:%x:%x", upspin.EEPack, w.keyHash, w.nonce))
-	hash := sha256.New
-	hkdf := hkdf.New(hash, S, nil, mess)
-	strong := make([]byte, aesKeyLen)
-	_, err = io.ReadFull(hkdf, strong)
+	R, err := marshalPoint(pub.Curve, pub.X, pub.Y)
 	if err != nil {
-		return
+		return nil, err
+	}
+	V, err := marshalPoint(pub.Curve, w.ephemeral.X, w.ephemeral.Y)
+	if err != nil {
+		return nil, err
+	}
+	strong, err := strongKey(packing, w, R, V, S, K)
+	if err != nil {
+		return nil, err
 	}
 
 	// Step 3. Decrypt dkey.

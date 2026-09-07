@@ -33,6 +33,9 @@ func ReadAll(cfg upspin.Config, entry *upspin.DirEntry) ([]byte, error) {
 		}
 	}
 
+	if err := CheckPacking(cfg, entry); err != nil {
+		return nil, err
+	}
 	var data []byte
 	packer := pack.Lookup(entry.Packing)
 	if packer == nil {

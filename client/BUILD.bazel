@@ -11,6 +11,7 @@ go_library(
         "//client/clientutil",
         "//client/file",
         "//errors",
+        "//factotum",
         "//flags",
         "//metric",
         "//pack",

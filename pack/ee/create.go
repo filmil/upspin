@@ -9,12 +9,15 @@ import (
 	"crypto/cipher"
 	"crypto/ecdsa"
 	"crypto/elliptic"
+	"crypto/mlkem"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/binary"
 	"io"
 	"math/big"
 
 	"upspin.io/errors"
+	"upspin.io/factotum"
 	"upspin.io/upspin"
 )
 
@@ -50,26 +53,55 @@ func (d *drng) Read(p []byte) (n int, err error) {
 	return lenp, nil
 }
 
-// CreateKeys creates a key pair based on the chosen curve and a slice of entropy.
-func CreateKeys(curveName string, entropy []byte) (public upspin.PublicKey, private string, err error) {
+// CreateKeys creates a key pair of the given key type from a slice of entropy,
+// which must be a valid AES key length: 16 bytes for a classic key type and
+// 32 bytes for a post-quantum key type, whose ML-KEM seed FIPS 203 requires
+// to have at least the strength of the KEM. The key type is one of
+// factotum.KeyTypes, such as "p256" or "p256+mlkem768". The same key type
+// and entropy always produce the same key pair, so the entropy alone is a
+// complete backup. For a post-quantum key type the ML-KEM seed is drawn
+// from the same deterministic stream, after the elliptic curve scalar.
+// It returns the public key in Upspin string form and the private key as
+// the text of a secret.upspinkey file.
+func CreateKeys(keyType string, entropy []byte) (public upspin.PublicKey, private string, err error) {
 	const op errors.Op = "pack/ee.CreateKeys"
-	var curve elliptic.Curve
-	switch curveName {
-	case "p256":
-		curve = elliptic.P256()
-	case "p384":
-		curve = elliptic.P384()
-	case "p521":
-		curve = elliptic.P521()
-	default:
-		return public, private, errors.E(op, errors.Invalid, errors.Errorf("curveName %s", curveName))
+	curve, kem, err := factotum.ParseKeyType(keyType)
+	if err != nil {
+		return public, private, errors.E(op, err)
+	}
+	if kem != factotum.NoKEM && !EEPQEnabled() {
+		return public, private, errors.E(op, errEEPQDisabled)
+	}
+	if kem != factotum.NoKEM && len(entropy) < 32 {
+		return public, private, errors.E(op, errors.Invalid, errors.Errorf("key type %s needs 32 bytes of entropy; got %d", keyType, len(entropy)))
 	}
 
-	priv, err := createKeysFromEntropy(curve, entropy)
+	// Create crypto deterministic random generator from entropy.
+	d := &drng{}
+	d.aes, err = aes.NewCipher(entropy)
 	if err != nil {
 		return public, private, errors.E(op, errors.Invalid, err)
 	}
-	public, private = encodeKeys(priv, curveName)
+
+	priv, err := legacyGenerateKey(curve, d)
+	if err != nil {
+		return public, private, errors.E(op, errors.Invalid, err)
+	}
+	public, private = encodeKeys(priv, keyType)
+	if kem == factotum.NoKEM {
+		return
+	}
+
+	seed := make([]byte, mlkem.SeedSize)
+	if _, err = io.ReadFull(d, seed); err != nil {
+		return "", "", errors.E(op, err)
+	}
+	dk, err := factotum.NewDecapsulationKey(kem, seed)
+	if err != nil {
+		return "", "", errors.E(op, err)
+	}
+	public += upspin.PublicKey(base64.StdEncoding.EncodeToString(dk.Encapsulator().Bytes()) + "\n")
+	private += base64.StdEncoding.EncodeToString(seed) + "\n"
 	return
 }
 
@@ -84,24 +116,6 @@ func encodeKeys(priv *ecdsa.PrivateKey, curveName string) (public upspin.PublicK
 	private = priv.D.String() + "\n"
 	public = upspin.PublicKey(curveName + "\n" + priv.X.String() + "\n" + priv.Y.String() + "\n")
 	return
-}
-
-// createKeysFromEntropy creates an ecsda private key from a given entropy.
-func createKeysFromEntropy(curve elliptic.Curve, entropy []byte) (*ecdsa.PrivateKey, error) {
-	// Create crypto deterministic random generator from b.
-	d := &drng{}
-	cipher, err := aes.NewCipher(entropy)
-	if err != nil {
-		return nil, err
-	}
-	d.aes = cipher
-
-	// Generate random key-pair.
-	priv, err := legacyGenerateKey(curve, d)
-	if err != nil {
-		return nil, err
-	}
-	return priv, nil
 }
 
 // The following excerpt from go1.19.10 crypto/ecdsa/ecdsa.go allows us to

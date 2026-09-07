@@ -484,6 +484,8 @@ func (p Packing) String() string {
 		return "ee"
 	case EEIntegrityPack:
 		return "eeintegrity"
+	case EEPQPack:
+		return "eepq"
 	default:
 		return fmt.Sprintf("packing(%d)", int(p))
 	}

@@ -7,9 +7,14 @@ package ee_test
 import (
 	"bytes"
 	"crypto/cipher"
+	"crypto/elliptic"
+	"crypto/mlkem"
 	"crypto/rand"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"log"
+	"os"
 	"strings"
 	"testing"
 
@@ -28,6 +33,11 @@ import (
 const (
 	packing = upspin.EEPack
 )
+
+func init() {
+	// The eepq packing is off by default; see TestEEPQDisabledByDefault.
+	ee.SetEEPQEnabled(true)
+}
 
 func TestRegister(t *testing.T) {
 	p := pack.Lookup(upspin.EEPack)
@@ -352,8 +362,14 @@ func TestCountersign(t *testing.T) {
 }
 
 func cfgFor(name upspin.UserName) (upspin.Config, upspin.Packer) {
+	return cfgForPacking(name, packing)
+}
+
+// cfgForPacking returns a config for the named test user, whose keys are in
+// key/testdata under the local part of the name, and the packer for p.
+func cfgForPacking(name upspin.UserName, p upspin.Packing) (upspin.Config, upspin.Packer) {
 	cfg := config.SetUserName(config.New(), name)
-	packer := pack.Lookup(packing)
+	packer := pack.Lookup(p)
 	j := strings.IndexByte(string(name), '@')
 	if j < 0 {
 		log.Fatalf("malformed username %s", name)
@@ -368,19 +384,20 @@ func cfgFor(name upspin.UserName) (upspin.Config, upspin.Packer) {
 }
 
 func setup(name upspin.UserName) (upspin.Config, upspin.Packer) {
-	cfg, packer := cfgFor(name)
+	return setupPacking(name, packing)
+}
 
-	joeCfg, _ := cfgFor("joe@upspin.io")
-	bobCfg, _ := cfgFor("bob@upspin.io")
-	mockKey := &dummyKey{
-		userToMatch: []upspin.UserName{
-			joeCfg.UserName(),
-			bobCfg.UserName(),
-		},
-		keyToReturn: []upspin.PublicKey{
-			joeCfg.Factotum().PublicKey(),
-			bobCfg.Factotum().PublicKey(),
-		},
+// setupPacking is setup with a choice of packing. The in-process key server
+// knows joe and bob, who have classic keys, and pqjoe and pqbob, whose keys
+// have an ML-KEM component.
+func setupPacking(name upspin.UserName, p upspin.Packing) (upspin.Config, upspin.Packer) {
+	cfg, packer := cfgForPacking(name, p)
+
+	mockKey := &dummyKey{}
+	for _, u := range []upspin.UserName{"joe@upspin.io", "bob@upspin.io", "pqjoe@upspin.io", "pqbob@upspin.io"} {
+		c, _ := cfgFor(u)
+		mockKey.userToMatch = append(mockKey.userToMatch, c.UserName())
+		mockKey.keyToReturn = append(mockKey.keyToReturn, c.Factotum().PublicKey())
 	}
 	bind.RegisterKeyServer(upspin.InProcess, mockKey)
 	return cfg, packer
@@ -594,3 +611,597 @@ func TestAllReaders(t *testing.T) {
 		t.Errorf("content unpacked as %q, want %q", got, want)
 	}
 }
+
+// The tests below exercise EEPQPack, whose key wrapping combines ECDH with
+// ML-KEM. Users pqjoe (p256+mlkem768) and pqbob (p521+mlkem1024) have
+// post-quantum keys; joe and bob have classic keys.
+
+const (
+	pqJoe upspin.UserName = "pqjoe@upspin.io"
+	pqBob upspin.UserName = "pqbob@upspin.io"
+)
+
+func TestRegisterPQ(t *testing.T) {
+	p := pack.Lookup(upspin.EEPQPack)
+	if p == nil {
+		t.Fatal("Lookup failed")
+	}
+	if p.Packing() != upspin.EEPQPack {
+		t.Fatalf("expected EEPQPack, got %q", p)
+	}
+	if p.String() != "eepq" {
+		t.Errorf("expected packer name eepq, got %q", p)
+	}
+	if pack.LookupByName("eepq") != p {
+		t.Error("LookupByName(eepq) did not find the packer")
+	}
+}
+
+func TestPackPQ(t *testing.T) {
+	const (
+		name = upspin.PathName(pqJoe + "/file/of/user.pq")
+		text = "this is some text for the quantum age"
+	)
+	cfg, packer := setupPacking(pqJoe, upspin.EEPQPack)
+	testPackAndUnpack(t, cfg, packer, name, []byte(text))
+
+	// ML-KEM-1024 with P-521.
+	cfg, packer = setupPacking(pqBob, upspin.EEPQPack)
+	testPackAndUnpack(t, cfg, packer, upspin.PathName(pqBob+"/file"), []byte(text))
+}
+
+func TestNamePQ(t *testing.T) {
+	const (
+		name    = upspin.PathName(pqJoe + "/file/of/user.pq")
+		newName = upspin.PathName(pqJoe + "/file/of/user.pq.2")
+		text    = "this is some text for the quantum age"
+	)
+	cfg, packer := setupPacking(pqJoe, upspin.EEPQPack)
+	testPackNameAndUnpack(t, cfg, packer, name, newName, []byte(text))
+}
+
+// TestPackClassicWithPQKey checks that a user with a post-quantum key can
+// still write and read the classic EEPack, which uses only the ECDSA part.
+func TestPackClassicWithPQKey(t *testing.T) {
+	const (
+		name = upspin.PathName(pqJoe + "/file/of/user.classic")
+		text = "classic packing, post-quantum key"
+	)
+	cfg, packer := setupPacking(pqJoe, upspin.EEPack)
+	testPackAndUnpack(t, cfg, packer, name, []byte(text))
+}
+
+// TestPQRequiresPQKey checks that EEPQPack refuses to wrap for a classic key.
+func TestPQRequiresPQKey(t *testing.T) {
+	const (
+		user upspin.UserName = "joe@upspin.io"
+		name                 = upspin.PathName(user + "/file")
+	)
+	cfg, packer := setupPacking(user, upspin.EEPQPack)
+	d := &upspin.DirEntry{
+		Name:       name,
+		SignedName: name,
+		Writer:     user,
+		Packing:    packer.Packing(),
+	}
+	bp, err := packer.Pack(cfg, d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := bp.Pack([]byte("text")); err != nil {
+		t.Fatal(err)
+	}
+	bp.SetLocation(upspin.Location{Reference: "dummy"})
+	err = bp.Close()
+	if err == nil {
+		t.Fatal("Close with a classic key under EEPQPack: expected error")
+	}
+	if !errors.Is(errors.NotExist, err) {
+		t.Errorf("Close with a classic key under EEPQPack: got %v, want NotExist", err)
+	}
+}
+
+func TestSharingPQ(t *testing.T) {
+	const (
+		pathName = upspin.PathName(pqJoe + "/secret_file_shared_with_pqbob")
+		text     = "pqbob, here's the secret file. Sincerely, pqjoe."
+	)
+	joecfg, packer := setupPacking(pqJoe, upspin.EEPQPack)
+	joePublic := joecfg.Factotum().PublicKey()
+	bobcfg, _ := setupPacking(pqBob, upspin.EEPQPack)
+	bobPublic := bobcfg.Factotum().PublicKey()
+	classicCfg, _ := setupPacking("bob@upspin.io", upspin.EEPQPack)
+	classicPublic := classicCfg.Factotum().PublicKey()
+
+	d := &upspin.DirEntry{
+		Name:       pathName,
+		SignedName: pathName,
+		Writer:     pqJoe,
+	}
+	cipher := packBlob(t, joecfg, packer, d, []byte(text))
+
+	// Share with pqbob and with bob, whose classic key cannot be wrapped for.
+	shareBlob(t, joecfg, packer, []upspin.PublicKey{joePublic, bobPublic, classicPublic}, &d.Packdata)
+
+	readers, err := packer.ReaderHashes(d.Packdata)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(readers) != 2 {
+		t.Fatalf("expected 2 reader hashes, got %d", len(readers))
+	}
+	if !bytes.Equal(readers[0], factotum.KeyHash(joePublic)) || !bytes.Equal(readers[1], factotum.KeyHash(bobPublic)) {
+		t.Errorf("reader hashes do not match pqjoe and pqbob")
+	}
+
+	// pqbob can read.
+	clear := unpackBlob(t, bobcfg, packer, d, cipher)
+	if string(clear) != text {
+		t.Errorf("expected %q, got %q", text, clear)
+	}
+
+	// bob cannot.
+	if _, err := packer.Unpack(classicCfg, d); !errors.Is(errors.CannotDecrypt, err) {
+		t.Errorf("classic bob unpacking EEPQPack: got %v, want CannotDecrypt", err)
+	}
+}
+
+// TestTamperedEncapsulationPQ checks that a modified ML-KEM ciphertext
+// makes unwrapping fail rather than yield a wrong key.
+func TestTamperedEncapsulationPQ(t *testing.T) {
+	const (
+		pathName = upspin.PathName(pqJoe + "/tampered")
+		text     = "some text"
+	)
+	cfg, packer := setupPacking(pqJoe, upspin.EEPQPack)
+	d := &upspin.DirEntry{
+		Name:       pathName,
+		SignedName: pathName,
+		Writer:     pqJoe,
+	}
+	packBlob(t, cfg, packer, d, []byte(text))
+	if err := ee.FlipEncapBit(&d.Packdata); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := packer.Unpack(cfg, d); err == nil {
+		t.Fatal("Unpack with tampered ML-KEM ciphertext: expected error")
+	}
+}
+
+func TestCountersignPQ(t *testing.T) {
+	const (
+		pathName = upspin.PathName(pqJoe + "/secret_for_pqbob")
+		text     = "pqbob, here's the secret file. Sincerely, pqjoe."
+	)
+	joeConfig, _ := setupPacking(pqJoe, upspin.EEPQPack)
+	joePublic := joeConfig.Factotum().PublicKey()
+	bobConfig, packer := setupPacking(pqBob, upspin.EEPQPack)
+	bobPublic := bobConfig.Factotum().PublicKey()
+
+	d := &upspin.DirEntry{
+		Name:       pathName,
+		SignedName: pathName,
+		Writer:     pqJoe,
+	}
+	cipher := packBlob(t, joeConfig, packer, d, []byte(text))
+	shareBlob(t, joeConfig, packer, []upspin.PublicKey{joePublic, bobPublic}, &d.Packdata)
+
+	// Emulate pqjoe executing "upspin keygen -rotate -curve p256+mlkem1024".
+	// The archived key must still unwrap so the entry can be countersigned.
+	f2, err := factotum.NewFromDir(testutil.Repo("key", "testdata", "pqjoe2"))
+	if err != nil {
+		t.Fatalf("cannot create second (key-rotated) factotum for pqjoe: %v", err)
+	}
+	if err := packer.Countersign(joePublic, f2, d); err != nil {
+		t.Fatal(err)
+	}
+	clear := unpackBlob(t, bobConfig, packer, d, cipher)
+	if string(clear) != text {
+		t.Errorf("expected %q, got %q", text, clear)
+	}
+}
+
+func TestMultiBlockRoundTripPQ(t *testing.T) {
+	cfg, packer := setupPacking(pqJoe, upspin.EEPQPack)
+	packtest.TestMultiBlockRoundTrip(t, cfg, packer, pqJoe)
+}
+
+func TestAllReadersPQ(t *testing.T) {
+	const (
+		pathName = upspin.PathName(pqJoe + "/dir/file")
+		content  = "Some text"
+	)
+	cfg, packer := setupPacking(pqJoe, upspin.EEPQPack)
+	cfg2, _ := setupPacking(pqBob, upspin.EEPQPack)
+
+	de := &upspin.DirEntry{
+		Name:       pathName,
+		SignedName: pathName,
+		Writer:     pqJoe,
+		Packing:    packer.Packing(),
+	}
+	cipher := packBlob(t, cfg, packer, de, []byte(content))
+
+	ok, err := packer.UnpackableByAll(de)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok {
+		t.Error("UnpackableByAll returned true, want false")
+	}
+	if _, err := packer.Unpack(cfg2, de); err == nil {
+		t.Fatalf("expected error unpacking as %s, got nil", pqBob)
+	}
+
+	readers := []upspin.PublicKey{cfg.Factotum().PublicKey(), upspin.AllUsersKey}
+	packer.Share(cfg, readers, []*[]byte{&de.Packdata})
+
+	ok, err = packer.UnpackableByAll(de)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Error("UnpackableByAll returned false, want true")
+	}
+	clear := unpackBlob(t, cfg2, packer, de, cipher)
+	if got, want := string(clear), content; got != want {
+		t.Errorf("content unpacked as %q, want %q", got, want)
+	}
+}
+
+// golden is the JSON form of a packed entry kept under testdata, so that a
+// later change to the code is checked against bytes an earlier binary wrote.
+type golden struct {
+	Name, Writer, Text, Ciphertext, Packdata, BlockPackdata string
+	Time, BlockSize                                         int64
+}
+
+// TestGoldenGen prints, as JSON between GOLDEN-BEGIN and GOLDEN-END lines,
+// a fresh eepq entry for pqjoe when UPSPIN_GOLDEN_GEN is set, so that the
+// fixture read by TestUnpackGoldenEEPQ can be regenerated on purpose.
+func TestGoldenGen(t *testing.T) {
+	if os.Getenv("UPSPIN_GOLDEN_GEN") == "" {
+		t.Skip("set UPSPIN_GOLDEN_GEN to print a new golden entry")
+	}
+	const text = "golden eepq packdata written by the code that introduced EEPQPack"
+	name := upspin.PathName(pqJoe + "/golden/file.txt")
+	cfg, packer := setupPacking(pqJoe, upspin.EEPQPack)
+	d := &upspin.DirEntry{Name: name, SignedName: name, Writer: pqJoe, Time: 1725700000}
+	cipher := packBlob(t, cfg, packer, d, []byte(text))
+	out, err := json.MarshalIndent(golden{
+		Name: string(name), Writer: string(pqJoe), Text: text, Time: int64(d.Time),
+		Ciphertext: hex.EncodeToString(cipher), Packdata: hex.EncodeToString(d.Packdata),
+		BlockPackdata: hex.EncodeToString(d.Blocks[0].Packdata), BlockSize: d.Blocks[0].Size,
+	}, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fmt.Printf("GOLDEN-BEGIN\n%s\nGOLDEN-END\n", out)
+}
+
+// TestUnpackGoldenEE unpacks an EEPack entry written by the code at the fork
+// point, before EEPQPack existed (testdata/ee-golden.json), so that stored
+// data is checked against the old binary's output rather than against this
+// package's own understanding of its format.
+func TestUnpackGoldenEE(t *testing.T) {
+	testUnpackGolden(t, "ee-golden.json", upspin.EEPack)
+}
+
+// TestUnpackGoldenEEPQ unpacks the EEPQPack entry in testdata/eepq-golden.json,
+// written by the code that introduced the packing. A change to the eepq
+// wire format or key derivation fails here and must update the fixture on
+// purpose.
+func TestUnpackGoldenEEPQ(t *testing.T) {
+	testUnpackGolden(t, "eepq-golden.json", upspin.EEPQPack)
+}
+
+func testUnpackGolden(t *testing.T, file string, packing upspin.Packing) {
+	var g golden
+	b, err := os.ReadFile(testutil.Repo("pack", "ee", "testdata", file))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(b, &g); err != nil {
+		t.Fatal(err)
+	}
+	unhex := func(s string) []byte {
+		b, err := hex.DecodeString(s)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return b
+	}
+	cfg, packer := setupPacking(upspin.UserName(g.Writer), packing)
+	d := &upspin.DirEntry{
+		Name:       upspin.PathName(g.Name),
+		SignedName: upspin.PathName(g.Name),
+		Writer:     upspin.UserName(g.Writer),
+		Packing:    packing,
+		Time:       upspin.Time(g.Time),
+		Packdata:   unhex(g.Packdata),
+		Blocks: []upspin.DirBlock{{
+			Location: upspin.Location{Reference: "golden"},
+			Size:     g.BlockSize,
+			Packdata: unhex(g.BlockPackdata),
+		}},
+	}
+	clear := unpackBlob(t, cfg, packer, d, unhex(g.Ciphertext))
+	if string(clear) != g.Text {
+		t.Errorf("golden text: got %q, want %q", clear, g.Text)
+	}
+}
+
+// TestNonceUniquePQ checks that every wrap draws a fresh AES-GCM nonce.
+func TestNonceUniquePQ(t *testing.T) {
+	cfg, packer := setupPacking(pqJoe, upspin.EEPQPack)
+	seen := make(map[string]bool)
+	for i := 0; i < 64; i++ {
+		name := upspin.PathName(fmt.Sprintf("%s/nonce/%d", pqJoe, i))
+		d := &upspin.DirEntry{Name: name, SignedName: name, Writer: pqJoe}
+		packBlob(t, cfg, packer, d, []byte("same text every time"))
+		nonces, err := ee.Nonces(d.Packdata, upspin.EEPQPack)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, n := range nonces {
+			if seen[string(n)] {
+				t.Fatalf("nonce %x used twice", n)
+			}
+			seen[string(n)] = true
+		}
+	}
+}
+
+// mixedFactotum answers ECDH with one user's key and ML-KEM with another's,
+// to check that a wrapped key needs both halves of the right key.
+type mixedFactotum struct {
+	upspin.Factotum
+	kem     factotum.Decapsulator
+	kemHash []byte
+}
+
+func (m mixedFactotum) Decapsulate(keyHash, ciphertext []byte) ([]byte, error) {
+	return m.kem.Decapsulate(m.kemHash, ciphertext)
+}
+
+// TestCrossKeyPQ checks that a key wrapped for pqjoe cannot be unwrapped
+// with pqbob's keys, nor with pqjoe's ECDH key and pqbob's ML-KEM key.
+func TestCrossKeyPQ(t *testing.T) {
+	const (
+		name = upspin.PathName(pqJoe + "/crosskey")
+		text = "for pqjoe only"
+	)
+	joeCfg, packer := setupPacking(pqJoe, upspin.EEPQPack)
+	bobCfg, _ := setupPacking(pqBob, upspin.EEPQPack)
+	d := &upspin.DirEntry{Name: name, SignedName: name, Writer: pqJoe}
+	packBlob(t, joeCfg, packer, d, []byte(text))
+
+	// pqbob, given a wrapped key relabeled with his own key hash.
+	relabeled := *d
+	relabeled.Packdata = append([]byte(nil), d.Packdata...)
+	if err := ee.RelabelWrap(&relabeled.Packdata, upspin.EEPQPack, factotum.KeyHash(bobCfg.Factotum().PublicKey())); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := packer.Unpack(bobCfg, &relabeled); err == nil {
+		t.Error("pqbob unwrapped a key made for pqjoe")
+	}
+
+	// pqjoe's ECDH key with pqbob's ML-KEM key.
+	mixed := mixedFactotum{
+		Factotum: joeCfg.Factotum(),
+		kem:      bobCfg.Factotum().(factotum.Decapsulator),
+		kemHash:  factotum.KeyHash(bobCfg.Factotum().PublicKey()),
+	}
+	mixedCfg := config.SetFactotum(joeCfg, mixed)
+	if _, err := packer.Unpack(mixedCfg, d); err == nil {
+		t.Error("unwrapped with the right ECDH key and the wrong ML-KEM key")
+	}
+	// And the unmodified entry still opens for pqjoe.
+	if _, err := packer.Unpack(joeCfg, d); err != nil {
+		t.Errorf("pqjoe cannot unpack own file: %v", err)
+	}
+}
+
+// TestUnpackWithoutDecapsulator checks the error when the factotum has no
+// ML-KEM support, as an out-of-tree Factotum implementation may not.
+func TestUnpackWithoutDecapsulator(t *testing.T) {
+	const name = upspin.PathName(pqJoe + "/nodecap")
+	cfg, packer := setupPacking(pqJoe, upspin.EEPQPack)
+	d := &upspin.DirEntry{Name: name, SignedName: name, Writer: pqJoe}
+	packBlob(t, cfg, packer, d, []byte("text"))
+	plain := struct{ upspin.Factotum }{cfg.Factotum()} // hides Decapsulate
+	if _, err := packer.Unpack(config.SetFactotum(cfg, plain), d); !errors.Is(errors.Invalid, err) {
+		t.Errorf("Unpack without Decapsulator: got %v, want Invalid", err)
+	}
+}
+
+// TestEEPQDisabledByDefault checks that every operation of the eepq packer
+// fails until the -eepq flag enables it, and that ee is unaffected.
+func TestEEPQDisabledByDefault(t *testing.T) {
+	const name = upspin.PathName(pqJoe + "/disabled")
+	cfg, packer := setupPacking(pqJoe, upspin.EEPQPack)
+	d := &upspin.DirEntry{Name: name, SignedName: name, Writer: pqJoe}
+	packBlob(t, cfg, packer, d, []byte("text"))
+
+	ee.SetEEPQEnabled(false)
+	defer ee.SetEEPQEnabled(true)
+	if _, err := packer.Pack(cfg, d); !errors.Is(errors.Permission, err) {
+		t.Errorf("Pack while disabled: got %v, want Permission", err)
+	}
+	if _, err := packer.Unpack(cfg, d); !errors.Is(errors.Permission, err) {
+		t.Errorf("Unpack while disabled: got %v, want Permission", err)
+	}
+	if _, err := packer.ReaderHashes(d.Packdata); !errors.Is(errors.Permission, err) {
+		t.Errorf("ReaderHashes while disabled: got %v, want Permission", err)
+	}
+	if err := packer.Name(cfg, d, name+".2"); !errors.Is(errors.Permission, err) {
+		t.Errorf("Name while disabled: got %v, want Permission", err)
+	}
+	pd := []*[]byte{&d.Packdata}
+	packer.Share(cfg, []upspin.PublicKey{cfg.Factotum().PublicKey()}, pd)
+	if pd[0] != nil {
+		t.Errorf("Share while disabled did not skip the packdata")
+	}
+	if _, _, err := ee.CreateKeys("p256+mlkem768", make([]byte, 32)); !errors.Is(errors.Permission, err) {
+		t.Errorf("CreateKeys of a post-quantum key while disabled: got %v, want Permission", err)
+	}
+	// Classic ee keeps working.
+	classicCfg, classic := setupPacking("joe@upspin.io", upspin.EEPack)
+	testPackAndUnpack(t, classicCfg, classic, "joe@upspin.io/still/works", []byte("classic"))
+}
+
+// TestTamperMatrix flips the first and the last bit of every packdata
+// field and checks that Unpack rejects the result, under both packings.
+// sig2 is the exception by design: it is a fallback signature consulted
+// only when sig fails, so damage to it changes nothing while sig is intact;
+// the last case checks that damage to both is rejected.
+func TestTamperMatrix(t *testing.T) {
+	type user struct {
+		name    upspin.UserName
+		packing upspin.Packing
+	}
+	for _, u := range []user{{"joe@upspin.io", upspin.EEPack}, {pqJoe, upspin.EEPQPack}} {
+		cfg, packer := setupPacking(u.name, u.packing)
+		name := upspin.PathName(u.name + "/tamper")
+		d := &upspin.DirEntry{Name: name, SignedName: name, Writer: u.name}
+		cipher := packBlob(t, cfg, packer, d, []byte("tamper matrix"))
+		fields := []string{"sig", "sig2", "keyHash", "dkey", "nonce", "ephemeral.X", "ephemeral.Y", "blockSum"}
+		if u.packing == upspin.EEPQPack {
+			fields = append(fields, "encap")
+		}
+		for _, field := range fields {
+			for _, last := range []bool{false, true} {
+				e := *d
+				e.Packdata = append([]byte(nil), d.Packdata...)
+				if err := ee.Tamper(&e.Packdata, u.packing, field, last); err != nil {
+					t.Fatalf("%s %s: %v", u.packing, field, err)
+				}
+				_, err := packer.Unpack(cfg, &e)
+				if field == "sig2" {
+					if err != nil {
+						t.Errorf("%s: tampered sig2 with intact sig: got %v, want success", u.packing, err)
+					}
+					continue
+				}
+				if err == nil {
+					t.Errorf("%s: tampered %s (last=%t) was accepted", u.packing, field, last)
+				}
+			}
+		}
+		// Both signatures damaged.
+		e := *d
+		e.Packdata = append([]byte(nil), d.Packdata...)
+		for _, field := range []string{"sig", "sig2"} {
+			if err := ee.Tamper(&e.Packdata, u.packing, field, false); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if _, err := packer.Unpack(cfg, &e); err == nil {
+			t.Errorf("%s: tampered sig and sig2 were accepted", u.packing)
+		}
+		// The untouched entry still opens.
+		if got := unpackBlob(t, cfg, packer, d, cipher); string(got) != "tamper matrix" {
+			t.Errorf("%s: untouched entry unpacked to %q", u.packing, got)
+		}
+	}
+}
+
+// TestConfusion checks that mismatched packings, curves, ciphertext sizes
+// and keys are rejected with an error rather than accepted or a panic.
+func TestConfusion(t *testing.T) {
+	joeCfg, eePacker := setupPacking("joe@upspin.io", upspin.EEPack)
+	pqCfg, pqPacker := setupPacking(pqJoe, upspin.EEPQPack)
+
+	eeEntry := &upspin.DirEntry{Name: "joe@upspin.io/confusion", SignedName: "joe@upspin.io/confusion", Writer: "joe@upspin.io"}
+	packBlob(t, joeCfg, eePacker, eeEntry, []byte("ee"))
+	pqEntry := &upspin.DirEntry{Name: upspin.PathName(pqJoe + "/confusion"), SignedName: upspin.PathName(pqJoe + "/confusion"), Writer: pqJoe}
+	packBlob(t, pqCfg, pqPacker, pqEntry, []byte("eepq"))
+
+	// An eepq packdata presented as ee, and the reverse.
+	asEE := *pqEntry
+	asEE.Packing = upspin.EEPack
+	if _, err := eePacker.Unpack(pqCfg, &asEE); err == nil {
+		t.Error("eepq packdata was accepted as ee")
+	}
+	asPQ := *eeEntry
+	asPQ.Packing = upspin.EEPQPack
+	if _, err := pqPacker.Unpack(joeCfg, &asPQ); err == nil {
+		t.Error("ee packdata was accepted as eepq")
+	}
+
+	// An ephemeral point on P-521 against a P-256 reader.
+	for _, c := range []struct {
+		cfg    upspin.Config
+		packer upspin.Packer
+		entry  *upspin.DirEntry
+	}{{joeCfg, eePacker, eeEntry}, {pqCfg, pqPacker, pqEntry}} {
+		e := *c.entry
+		e.Packdata = append([]byte(nil), c.entry.Packdata...)
+		if err := ee.ReplaceEphemeral(&e.Packdata, c.packer.Packing(), elliptic.P521()); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := c.packer.Unpack(c.cfg, &e); err == nil {
+			t.Errorf("%s: ephemeral point on the wrong curve was accepted", c.packer)
+		}
+	}
+
+	// An ML-KEM-1024 sized ciphertext against an ML-KEM-768 key.
+	e := *pqEntry
+	e.Packdata = append([]byte(nil), pqEntry.Packdata...)
+	if err := ee.ResizeEncap(&e.Packdata, upspin.EEPQPack, mlkem.CiphertextSize1024); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pqPacker.Unpack(pqCfg, &e); !errors.Is(errors.Invalid, err) {
+		t.Errorf("ML-KEM-1024 ciphertext against ML-KEM-768 key: got %v, want Invalid", err)
+	}
+	// A ciphertext of a size that is no ML-KEM size fails to parse at all.
+	e = *pqEntry
+	e.Packdata = append([]byte(nil), pqEntry.Packdata...)
+	if err := ee.ResizeEncap(&e.Packdata, upspin.EEPQPack, 1000); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pqPacker.Unpack(pqCfg, &e); !errors.Is(errors.Invalid, err) {
+		t.Errorf("ML-KEM ciphertext of 1000 bytes: got %v, want Invalid", err)
+	}
+}
+
+// TestPackdataSizes pins the Packdata size of a one-reader entry for each
+// key type, the operational cost of the packings that the docs quote.
+func TestPackdataSizes(t *testing.T) {
+	cases := []struct {
+		name    upspin.UserName
+		packing upspin.Packing
+		want    int
+	}{
+		{"joe@upspin.io", upspin.EEPack, sizeEEP256},
+		{pqJoe, upspin.EEPQPack, sizeEEPQP256},
+		{pqBob, upspin.EEPQPack, sizeEEPQP521},
+	}
+	for _, c := range cases {
+		cfg, packer := setupPacking(c.name, c.packing)
+		name := upspin.PathName(c.name + "/size")
+		d := &upspin.DirEntry{Name: name, SignedName: name, Writer: c.name}
+		packBlob(t, cfg, packer, d, []byte("size"))
+		// The constants are the largest sizes. Signature and point
+		// integers are encoded without leading zeros, so each may be a
+		// byte shorter: rarely on P-256, and half the time on P-521,
+		// whose 521 bit values are 65 or 66 bytes. Four such integers
+		// give a spread of four bytes; eight is a safe margin.
+		if got := len(d.Packdata); got > c.want || got < c.want-8 {
+			t.Errorf("%s %s: Packdata is %d bytes, want %d", c.name, c.packing, got, c.want)
+		}
+	}
+}
+
+// Largest Packdata sizes of a one-reader entry, checked by
+// TestPackdataSizes: ee with a p256 key, eepq with p256+mlkem768, and eepq
+// with p521+mlkem1024. The signature, empty second signature, count and
+// block checksum take 102 bytes with P-256 and 170 with P-521. Each reader
+// adds a wrapped key: 161 bytes for ee with P-256, 1251 for eepq with
+// p256+mlkem768 (the 1088 byte ML-KEM-768 ciphertext and its length), and
+// 1803 for eepq with p521+mlkem1024 (a 1568 byte ciphertext).
+const (
+	sizeEEP256   = 263
+	sizeEEPQP256 = 1353
+	sizeEEPQP521 = 1973
+)

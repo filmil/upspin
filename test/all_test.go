@@ -14,11 +14,15 @@ import (
 	"upspin.io/upspin"
 
 	_ "upspin.io/dir/inprocess"
-	_ "upspin.io/pack/ee"
+	"upspin.io/pack/ee"
 	_ "upspin.io/pack/eeintegrity"
 	_ "upspin.io/pack/plain"
 	_ "upspin.io/store/inprocess"
 )
+
+func init() {
+	ee.SetEEPQEnabled(true) // eepq is opt-in; these tests exercise it.
+}
 
 func TestClientFile(t *testing.T) {
 	for _, p := range []upspin.Packing{upspin.PlainPack, upspin.EEIntegrityPack, upspin.EEPack} {
@@ -28,13 +32,25 @@ func TestClientFile(t *testing.T) {
 			testFileSequentialAccess(t, env)
 		})
 	}
+	// EEPQPack needs an owner whose key has an ML-KEM component.
+	t.Run(fmt.Sprintf("packing=%v", upspin.EEPQPack), func(t *testing.T) {
+		env := newEnvOwner(t, upspin.EEPQPack, "pqjoe@upspin.io")
+		defer env.Exit()
+		testFileSequentialAccess(t, env)
+	})
 }
 
 // newEnv configures a test environment using a packing.
 func newEnv(t *testing.T, packing upspin.Packing) *testenv.Env {
+	return newEnvOwner(t, packing, "user1@domain.com")
+}
+
+// newEnvOwner configures an in-process test environment using a packing,
+// owned by the named user, whose keys must be in key/testdata.
+func newEnvOwner(t *testing.T, packing upspin.Packing, owner upspin.UserName) *testenv.Env {
 	println(packing.String())
 	s := &testenv.Setup{
-		OwnerName: "user1@domain.com",
+		OwnerName: owner,
 		Kind:      "inprocess",
 		Packing:   packing,
 	}

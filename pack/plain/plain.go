@@ -314,14 +314,19 @@ func pdUnmarshal(pd []byte) (sig, sig2 upspin.Signature, err error) {
 	sig2.R = big.NewInt(0)
 	sig2.S = big.NewInt(0)
 	buf := make([]byte, marshalBufLen)
-	n += packutil.GetBytes(&buf, pd[n:])
-	sig.R.SetBytes(buf)
-	n += packutil.GetBytes(&buf, pd[n:])
-	sig.S.SetBytes(buf)
-	n += packutil.GetBytes(&buf, pd[n:])
-	sig2.R.SetBytes(buf)
-	n += packutil.GetBytes(&buf, pd[n:])
-	sig2.S.SetBytes(buf)
+	for _, set := range []func([]byte){
+		func(b []byte) { sig.R.SetBytes(b) },
+		func(b []byte) { sig.S.SetBytes(b) },
+		func(b []byte) { sig2.R.SetBytes(b) },
+		func(b []byte) { sig2.S.SetBytes(b) },
+	} {
+		k, err := packutil.GetBytes(&buf, pd[n:])
+		if err != nil {
+			return sig0, sig0, errors.E(errors.Op("pack/plain.pdUnmarshal"), errors.Invalid, err)
+		}
+		n += k
+		set(buf)
+	}
 	return sig, sig2, nil
 }
 

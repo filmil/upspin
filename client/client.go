@@ -17,6 +17,7 @@ import (
 	"upspin.io/client/clientutil"
 	"upspin.io/client/file"
 	"upspin.io/errors"
+	"upspin.io/factotum"
 	"upspin.io/flags"
 	"upspin.io/metric"
 	"upspin.io/pack"
@@ -184,6 +185,10 @@ func (c *Client) put(name upspin.PathName, seq int64, r io.Reader) (*upspin.DirE
 		Writer:     c.config.UserName(),
 		Link:       "",
 		Attr:       upspin.AttrNone,
+	}
+
+	if err := clientutil.CheckPacking(c.config, entry); err != nil {
+		return nil, errors.E(op, err)
 	}
 
 	ss := s.StartSpan("pack")
@@ -377,7 +382,10 @@ func validateWhichAccess(name upspin.PathName, accessEntry *upspin.DirEntry) err
 // link evaluation, from the final call to WhichAccess. The caller may then
 // use that name or entry to avoid evaluating the links again.
 func (c *Client) addReaders(op errors.Op, entry *upspin.DirEntry, packer upspin.Packer, readers []upspin.UserName) error {
-	if packer.Packing() != upspin.EEPack {
+	switch packer.Packing() {
+	case upspin.EEPack, upspin.EEPQPack:
+		// These packings wrap the file key for each reader.
+	default:
 		return nil
 	}
 
@@ -404,6 +412,15 @@ func (c *Client) addReaders(op errors.Op, entry *upspin.DirEntry, packer upspin.
 		if err != nil || len(u.PublicKey) == 0 {
 			// TODO warn that we can't process one of the readers?
 			continue
+		}
+		if packer.Packing() == upspin.EEPQPack {
+			// A reader without a post-quantum key would be dropped by
+			// Share without any way to tell the caller, so refuse here,
+			// as "share -fix" does. The owner can give the reader a
+			// post-quantum key, remove the reader, or use the ee packing.
+			if _, err := factotum.ParseEncapsulationKey(u.PublicKey); err != nil {
+				return errors.E(op, name, errors.Invalid, errors.Errorf("reader %s has no post-quantum key for packing %s: %v", r, packer, err))
+			}
 		}
 		if u.PublicKey != readersPublicKey[0] { // don't duplicate self
 			// TODO(ehg) maybe should check for other duplicates?

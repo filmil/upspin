@@ -14,6 +14,7 @@ import (
 	"text/template"
 
 	"upspin.io/config"
+	"upspin.io/factotum"
 	"upspin.io/flags"
 	"upspin.io/serverutil/signup"
 	"upspin.io/subcmd"
@@ -47,7 +48,9 @@ the -dir and -store flags must not be set.
 
 By default, signup creates new keys with the p256 cryptographic curve set.
 The -curve and -secretseed flags allow the user to control the curve or to
-recreate or reuse prior keys.
+recreate or reuse prior keys. A key type such as p256+mlkem768 adds an
+ML-KEM key pair and selects the post-quantum eepq packing in the new
+configuration file.
 
 The -signuponly flag tells signup to skip the generation of the configuration
 file and keys and only send the signup request to the key server.
@@ -61,8 +64,8 @@ file and keys and only send the signup request to the key server.
 		bothServer  = fs.String("server", "", "Store and Directory server `address` (if combined)")
 		signupOnly  = fs.Bool("signuponly", false, "only send signup request to key server; do not generate config or keys")
 		secrets     = fs.String("secrets", "", "`directory` to store key pair")
-		curve       = fs.String("curve", "p256", "cryptographic curve `name`: p256, p384, or p521")
-		secretseed  = fs.String("secretseed", "", "the seed containing a 128 bit secret in proquint format or a file that contains it")
+		curve       = fs.String("curve", "p256", curveFlagHelp)
+		secretseed  = fs.String("secretseed", "", "the seed containing a 128 bit secret (256 bit for post-quantum key types) in proquint format or a file that contains it")
 	)
 
 	s.ParseFlags(fs, args, help, "[-config=<file>] signup -dir=<addr> -store=<addr> [flags] <username>\n       upspin [-config=<file>] signup -server=<addr> [flags] <username>")
@@ -138,14 +141,19 @@ file and keys and only send the signup request to the key server.
 		s.Exitf("%s already exists", flags.Config)
 	}
 
-	// Write the config file.
+	// Write the config file. A post-quantum key type selects the packing
+	// that uses its ML-KEM component.
+	packing := "ee"
+	if _, kem, _ := factotum.ParseKeyType(*curve); kem != factotum.NoKEM {
+		packing = "eepq"
+	}
 	var configContents bytes.Buffer
 	err = configTemplate.Execute(&configContents, configData{
 		UserName:  userName,
 		Key:       keyEndpoint,
 		Dir:       dirEndpoint,
 		Store:     storeEndpoint,
-		Packing:   "ee",
+		Packing:   packing,
 		SecretDir: *secrets,
 	})
 	if err != nil {

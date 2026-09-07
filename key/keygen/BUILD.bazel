@@ -7,6 +7,7 @@ go_library(
     visibility = ["//visibility:public"],
     deps = [
         "//errors",
+        "//factotum",
         "//key/proquint",
         "//pack/ee",
     ],
@@ -16,4 +17,9 @@ go_test(
     name = "keygen_test",
     srcs = ["keygen_test.go"],
     embed = [":keygen"],
+    deps = [
+        "//factotum",
+        "//pack/ee",
+        "//upspin",
+    ],
 )

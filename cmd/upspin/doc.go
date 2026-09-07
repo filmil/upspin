@@ -80,6 +80,8 @@ Global flags:
     	size of blocks when writing large files (default 1048576)
   -config file
     	user's configuration file (default "/home/user/upspin/config")
+  -eepq
+    	enable the eepq post-quantum packing and post-quantum key types
   -log level
     	level of logging: debug, info, error, disabled (default info)
   -prudent
@@ -209,7 +211,7 @@ rather than this command.
 
 Flags:
   -curve name
-    	cryptographic curve name: p256, p384, or p521 (default "p256")
+    	cryptographic key type name: p256, p384, or p521, optionally followed by +mlkem768 or +mlkem1024 (default "p256")
   -dir address
     	Directory server address (default "dir.example.com:443")
   -force
@@ -221,7 +223,7 @@ Flags:
   -secrets directory
     	directory to store key pair
   -secretseed string
-    	the seed containing a 128 bit secret in proquint format or a file that contains it
+    	the seed containing a 128 bit secret (256 bit for post-quantum key types) in proquint format or a file that contains it
   -server address
     	Store and Directory server address (if combined)
   -store address
@@ -333,17 +335,22 @@ use the "user -put" command for that.
 
 New users should instead use the "signup" command to create their first key.
 
+The -curve flag keeps its name for compatibility but names a key type:
+a curve, optionally followed by +mlkem768 or +mlkem1024 for a
+post-quantum key. Post-quantum key types need the -eepq global flag
+and a 256 bit secret seed.
+
 See the description for rotate for information about updating keys.
 
 Flags:
   -curve name
-    	cryptographic curve name: p256, p384, or p521 (default "p256")
+    	cryptographic key type name: p256, p384, or p521, optionally followed by +mlkem768 or +mlkem1024 (default "p256")
   -help
     	print more information about the command
   -rotate
     	back up the existing keys and replace them with new ones
   -secretseed string
-    	the seed containing a 128-bit secret in proquint format or a file that contains it
+    	the seed containing a 128 bit secret (256 bit for post-quantum key types) in proquint format or a file that contains it
 
 
 
@@ -532,7 +539,7 @@ Flags:
   -cluster
     	generate keys for upspin-dir@domain and upspin-store@domain (default is upspin@domain only)
   -curve name
-    	cryptographic curve name: p256, p384, or p521 (default "p256")
+    	cryptographic key type name: p256, p384, or p521, optionally followed by +mlkem768 or +mlkem1024 (default "p256")
   -domain name
     	domain name for this Upspin installation
   -help
@@ -542,7 +549,7 @@ Flags:
   -put-users
     	put server users to the key server
   -secretseed string
-    	the seed containing a 128 bit secret in proquint format or a file that contains it
+    	the seed containing a 128 bit secret (256 bit for post-quantum key types) in proquint format or a file that contains it
   -where directory
     	directory to store private configuration files (default "/home/user/upspin/deploy")
 
@@ -727,14 +734,16 @@ the -dir and -store flags must not be set.
 
 By default, signup creates new keys with the p256 cryptographic curve set.
 The -curve and -secretseed flags allow the user to control the curve or to
-recreate or reuse prior keys.
+recreate or reuse prior keys. A key type such as p256+mlkem768 adds an
+ML-KEM key pair and selects the post-quantum eepq packing in the new
+configuration file.
 
 The -signuponly flag tells signup to skip the generation of the configuration
 file and keys and only send the signup request to the key server.
 
 Flags:
   -curve name
-    	cryptographic curve name: p256, p384, or p521 (default "p256")
+    	cryptographic key type name: p256, p384, or p521, optionally followed by +mlkem768 or +mlkem1024 (default "p256")
   -dir address
     	Directory server address
   -force
@@ -746,7 +755,7 @@ Flags:
   -secrets directory
     	directory to store key pair
   -secretseed string
-    	the seed containing a 128 bit secret in proquint format or a file that contains it
+    	the seed containing a 128 bit secret (256 bit for post-quantum key types) in proquint format or a file that contains it
   -server address
     	Store and Directory server address (if combined)
   -signuponly
