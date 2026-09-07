@@ -14,6 +14,7 @@ import (
 	"testing/iotest"
 
 	"upspin.io/bind"
+	"upspin.io/client/clientutil"
 	"upspin.io/config"
 	"upspin.io/factotum"
 	"upspin.io/flags"
@@ -1448,5 +1449,59 @@ func TestCreateLargeFile(t *testing.T) {
 	}
 	if len(entry.Blocks) != 3 {
 		t.Fatalf("file has %d blocks, want 3", len(entry.Blocks))
+	}
+}
+
+// TestRequirePacking checks the downgrade defense: with requirepacking
+// set to eepq, the client refuses an ee entry that the directory server
+// serves (Get and Open) and refuses to write under ee (Put), while the
+// same entry is readable when the config requires ee, and Access files
+// are exempt.
+func TestRequirePacking(t *testing.T) {
+	const (
+		user = upspin.UserName("require@example.com")
+		text = "written under ee before the requirement"
+	)
+	cfg := setup(config.SetPacking(baseCfg, upspin.EEPack), user)
+	client := New(cfg)
+	name := upspin.PathName(user + "/file")
+	if _, err := client.Put(name, []byte(text)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.Put(upspin.PathName(user+"/Access"), []byte("*: "+string(user)+"\n")); err != nil {
+		t.Fatal(err)
+	}
+
+	// The directory server now serves an ee entry; a client that requires
+	// eepq refuses it on every read path and refuses to write under ee.
+	strict := New(config.SetValue(cfg, clientutil.RequiredPackingKey, "eepq"))
+	if _, err := strict.Get(name); !errors.Is(errors.Permission, err) {
+		t.Errorf("Get of an ee entry with requirepacking eepq: got %v, want Permission", err)
+	}
+	if _, err := strict.Open(name); !errors.Is(errors.Permission, err) {
+		t.Errorf("Open of an ee entry with requirepacking eepq: got %v, want Permission", err)
+	}
+	if _, err := strict.Put(upspin.PathName(user+"/file2"), []byte("new")); !errors.Is(errors.Permission, err) {
+		t.Errorf("Put under ee with requirepacking eepq: got %v, want Permission", err)
+	}
+	// Access files are exempt, so access checks keep working.
+	if _, err := strict.Get(upspin.PathName(user + "/Access")); err != nil {
+		t.Errorf("Get of the Access file with requirepacking eepq: %v", err)
+	}
+
+	// A requirement the entry meets changes nothing.
+	lenient := New(config.SetValue(cfg, clientutil.RequiredPackingKey, "ee"))
+	got, err := lenient.Get(name)
+	if err != nil {
+		t.Fatalf("Get with requirepacking ee: %v", err)
+	}
+	if string(got) != text {
+		t.Errorf("Get with requirepacking ee: got %q, want %q", got, text)
+	}
+
+	// A requirement that names no packing fails closed.
+	typo := New(config.SetValue(cfg, clientutil.RequiredPackingKey, "eepqq"))
+	if _, err := typo.Get(name); !errors.Is(errors.Invalid, err) {
+		t.Errorf("Get with a misspelled requirepacking: got %v, want Invalid", err)
 	}
 }

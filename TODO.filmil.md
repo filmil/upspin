@@ -98,11 +98,7 @@ The nightly fuzz job is the only asynchronous input.
     reads, then the reverse.
     This makes "ee is untouched on the wire" something a machine checks.
     About five minutes.
-14. **Downgrade refusal test.**
-    With `requirepacking: eepq` in the config, serve an `ee` entry from a
-    fake directory server and assert that `Get` and `Open` fail with
-    `errors.Permission`; also the write side with a config whose
-    `packing` line says `ee`.
+14. **Downgrade refusal test.** Landed in PR #76.
 
 ### From the third review
 
