@@ -49,10 +49,7 @@ The nightly fuzz job is the only asynchronous input.
 ### Fuzz and race
 
 10. **Fuzz targets with a committed corpus.** Landed in PR #80.
-11. **Coverage gate.**
-    Fail the PR when `pack/ee`, `pack/packutil`, `factotum` or
-    `key/keygen` fall below 90 percent line coverage, from
-    `bazel coverage --combined_report=lcov`.
+11. **Coverage gate.** Landed in PR #81.
 12. **Race detector.** Landed in PR #62.
 
 ### Compatibility
@@ -98,6 +95,13 @@ The nightly fuzz job is the only asynchronous input.
     unhandled errors and G115 integer conversions) are still reported
     but not gated.
     Fix them in small batches and raise the gate.
+29. **Raise the coverage floors to 90 percent.**
+    The gate in `.github/scripts/coverage_gate.py` started at the
+    coverage each package had: factotum 80, key/keygen 35, pack 85,
+    pack/ee 75, pack/packutil 80.
+    Add tests and raise each floor as it climbs; key/keygen's file
+    writing (SaveKeys, rotation, the archive) has no tests at all.
+
 26. **Human review, for the fourth time.**
     Four rounds of review, all by an assistant.
     The parser, the combiner and the gating are in shape for a human
