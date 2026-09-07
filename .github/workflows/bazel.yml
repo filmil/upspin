@@ -50,6 +50,7 @@ jobs:
 
 
 
+
   # The race detector on the packages that share state across goroutines:
   # the packer registry and packers, the factotum, and the client. Kept
   # to those packages so the job stays a few minutes long.
@@ -88,6 +89,7 @@ jobs:
 
 
 
+
   # Secrets committed by mistake. The tree holds test keys on purpose;
   # .github/gitleaks.toml allow-lists those paths and nothing else.
   gitleaks:
@@ -103,6 +105,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_CONFIG: .github/gitleaks.toml
+
 
 
 
@@ -150,6 +153,7 @@ jobs:
 
       - name: Run govulncheck
         run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
 
 
 
@@ -207,6 +211,7 @@ jobs:
 
 
 
+
   # Assistant commits must carry the trailers the SOP requires. On a pull
   # request the range is the PR's commits; on a push it is the pushed
   # commits.
@@ -226,6 +231,7 @@ jobs:
             echo "new branch; nothing to compare against"; exit 0
           fi
           .github/scripts/check_trailers.sh "$RANGE"
+
 
 
   # The upspin binary from the base of the pull request and the one from
@@ -262,6 +268,7 @@ jobs:
 
       - name: Old binary against new binary
         run: .github/scripts/compat.sh ${{ github.event.pull_request.base.sha }}
+
 
   # Fuzz every parser for 60 seconds. Bazel does not drive the fuzz
   # engine, so the script runs go test -fuzz through Bazel's Go toolchain.
@@ -306,3 +313,25 @@ jobs:
           name: fuzz-failures
           path: |
             **/testdata/fuzz/**
+
+  # Line coverage of the crypto packages must not fall below the floors
+  # in .github/scripts/coverage_gate.py. The floors only go up; the
+  # target is 90 percent.
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Bazel
+        uses: bazel-contrib/setup-bazel@0.19.0
+        with:
+          bazelisk-cache: true
+          disk-cache: ${{ github.job }}
+          repository-cache: true
+
+      - name: Bazel coverage of the crypto packages
+        run: bazel coverage --combined_report=lcov --instrumentation_filter='^//(pack|factotum|key/keygen)' //pack/... //factotum:factotum_test //key/keygen:keygen_test
+
+      - name: Check the coverage floors
+        run: python3 .github/scripts/coverage_gate.py "$(bazel info output_path)/_coverage/_coverage_report.dat"
