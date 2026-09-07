@@ -47,6 +47,7 @@ jobs:
 
 
 
+
   # The race detector on the packages that share state across goroutines:
   # the packer registry and packers, the factotum, and the client. Kept
   # to those packages so the job stays a few minutes long.
@@ -82,6 +83,7 @@ jobs:
 
 
 
+
   # Secrets committed by mistake. The tree holds test keys on purpose;
   # .github/gitleaks.toml allow-lists those paths and nothing else.
   gitleaks:
@@ -97,6 +99,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_CONFIG: .github/gitleaks.toml
+
 
 
   # Known vulnerabilities in code paths the build reaches. govulncheck
@@ -141,6 +144,7 @@ jobs:
 
       - name: Run govulncheck
         run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
 
   # Static analysis on a plain Go toolchain. go vet is enforced in full;
   # staticcheck runs the correctness checks named in staticcheck.conf;
@@ -192,3 +196,23 @@ jobs:
 
       - name: gosec
         run: go run github.com/securego/gosec/v2/cmd/gosec@latest -quiet -severity high -confidence high ./...
+
+  # Assistant commits must carry the trailers the SOP requires. On a pull
+  # request the range is the PR's commits; on a push it is the pushed
+  # commits.
+  commit_trailers:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check commit trailers
+        env:
+          RANGE: ${{ github.event_name == 'pull_request' && format('{0}..{1}', github.event.pull_request.base.sha, github.event.pull_request.head.sha) || format('{0}..{1}', github.event.before, github.sha) }}
+        run: |
+          if [[ "$RANGE" == 0000000000000000000000000000000000000000..* ]]; then
+            echo "new branch; nothing to compare against"; exit 0
+          fi
+          .github/scripts/check_trailers.sh "$RANGE"
