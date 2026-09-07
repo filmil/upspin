@@ -633,7 +633,7 @@ func (ee ee) updateDirEntry(op errors.Op, cfg upspin.Config, d *upspin.DirEntry,
 		}
 	}
 	if !wrapFound && !allFound {
-		return errors.E(op, d.Name, errNoWrappedKey)
+		return errors.E(op, errors.NotExist, d.Name, errNoWrappedKey)
 	}
 
 	f := cfg.Factotum()
@@ -644,7 +644,7 @@ func (ee ee) updateDirEntry(op errors.Op, cfg upspin.Config, d *upspin.DirEntry,
 		// Decode my wrapped key using my private key
 		dkey, err = aesUnwrap(ee.packing, f, w)
 		if err != nil {
-			return errors.E(op, d.Name, "unwrap failed")
+			return errors.E(op, errors.CannotDecrypt, d.Name, err)
 		}
 	}
 
@@ -714,11 +714,11 @@ func (ee ee) Countersign(oldKey upspin.PublicKey, f upspin.Factotum, d *upspin.D
 		}
 	}
 	if !wrapFound {
-		return errors.E(op, d.Name, errNoWrappedKey)
+		return errors.E(op, errors.NotExist, d.Name, errNoWrappedKey)
 	}
 	dkey, err := aesUnwrap(ee.packing, f, w)
 	if err != nil {
-		return errors.E(op, d.Name, "unwrap failed")
+		return errors.E(op, errors.CannotDecrypt, d.Name, err)
 	}
 
 	// Verify existing signature with oldKey.

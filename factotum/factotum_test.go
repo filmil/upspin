@@ -457,3 +457,34 @@ func FuzzSecret2Archive(f *testing.F) {
 		NewFromKeys(pub, priv, archived)
 	})
 }
+
+// TestArchiveConfusion feeds the secret2.upspinkey parser records that do
+// not belong together and checks that each ends in errors.Invalid with
+// the current key still loaded, never in a wrong key or a panic.
+func TestArchiveConfusion(t *testing.T) {
+	read := func(dir, name string) string {
+		b, err := os.ReadFile(filepath.Join("testdata", dir, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(b)
+	}
+	pub, priv := read("pq", "public.upspinkey"), read("pq", "secret.upspinkey")
+	okPub, okPriv := read("ok", "public.upspinkey"), read("ok", "secret.upspinkey")
+	cases := map[string]string{
+		"classic public with post-quantum private":    "# EE\n" + okPub + priv,
+		"post-quantum public with classic private":    "# EE\n" + pub + okPriv,
+		"post-quantum public with another key's seed": "# EE\n" + pub + strings.SplitN(priv, "\n", 2)[0] + "\n" + strings.SplitN(read("pq-archived", "secret2.upspinkey"), "\n", 14)[13] + "\n",
+		"unknown key type":                            "# EE\np256+mlkem512\n1\n2\n3\n4\n5\n",
+		"mixed strengths":                             "# EE\np256+mlkem1024\n1\n2\n3\n4\n5\n",
+	}
+	for name, archive := range cases {
+		f, err := NewFromKeys([]byte(pub), []byte(priv), []byte(archive))
+		if !errors.Is(errors.Invalid, err) {
+			t.Errorf("%s: got %v, want Invalid", name, err)
+		}
+		if f == nil || f.PublicKey() != upspin.PublicKey(pub) {
+			t.Errorf("%s: current key not loaded", name)
+		}
+	}
+}
