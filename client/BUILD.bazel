@@ -32,6 +32,7 @@ go_test(
     embed = [":client"],
     deps = [
         "//bind",
+        "//client/clientutil",
         "//config",
         "//dir/inprocess",
         "//errors",
