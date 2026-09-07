@@ -94,7 +94,10 @@ A config may also set `requirepacking: eepq`.
 The client then refuses to write a regular file under any other packing.
 That catches a config whose `packing` line was changed.
 It also refuses to read a regular file served with another packing,
-through `Get`, `Open` and `upspinfs`.
+through `Get`, `Open` and `upspinfs`, except for files already in the
+`upspinfs` cache: a file decrypted into the local cache before the
+config line was added is served from the cache without the check, since
+the cache holds cleartext already.
 That catches a directory server that offers an old **ee** version of a
 file.
 A `requirepacking` value that names no packing is an error, not an

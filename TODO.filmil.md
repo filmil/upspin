@@ -155,12 +155,7 @@ The nightly fuzz job is the only asynchronous input.
     `errEEPQDisabled` has the same shape when a server hits it reading an
     Access file.
     Say which host: "directory server not started with -eepq".
-22. **`requirepacking` and the upspinfs cache.**
-    The check in `cmd/upspinfs/cache.go` runs only when the file is not
-    yet downloaded; a file decrypted into the local cache before the
-    config line was added is served from the cache without it.
-    Defensible, since the cache is cleartext already, but the doc must
-    say "except files already in the upspinfs cache".
+22. **`requirepacking` and the upspinfs cache.** Landed in PR #70.
 23. **`flags` imports `pack/ee` only to read and write the switch.** Landed in PR #68.
 24. **`TestNonceUniquePQ` tests the random source, not the property.**
     Sixty-four random 96 bit nonces can only collide if the source is
