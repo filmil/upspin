@@ -22,6 +22,8 @@ func (p testPacker) String() string          { return "testpacker" }
 // TestSetEnabled checks that a disabled packing stays registered and
 // resolvable by Lookup and LookupByName, so that its operations can fail
 // with a message that names the switch, while Enabled reports false.
+// It registers a packing and flips its switch, which is process-wide
+// state, so it must not call t.Parallel.
 func TestSetEnabled(t *testing.T) {
 	const packing upspin.Packing = 7 // in the range reserved for tests
 	p := testPacker{packing: packing}

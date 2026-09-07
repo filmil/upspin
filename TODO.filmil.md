@@ -176,11 +176,7 @@ The nightly fuzz job is the only asynchronous input.
     broken, and then every other test fails first.
     Test that each wrap uses a fresh ephemeral key and a fresh
     encapsulation, or delete the test.
-25. **Tests that toggle process-wide state.**
-    `TestDirEntryEEPQDisabled` and `TestCheckPacking` flip the packing
-    switch and are not marked as unsafe for `t.Parallel`.
-    Add a comment, or the first person who parallelizes the package gets
-    a flaky test.
+25. **Tests that toggle process-wide state.** Landed in PR #69.
 26. **Human review, for the fourth time.**
     Four rounds of review, all by an assistant.
     The parser, the combiner and the gating are in shape for a human

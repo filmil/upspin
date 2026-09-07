@@ -14,6 +14,9 @@ import (
 	"upspin.io/upspin"
 )
 
+// TestCheckPacking sets config values that name packings. It does not
+// flip the packing switch, but it relies on the eepq packing's state being
+// whatever the process started with; keep it out of t.Parallel.
 func TestCheckPacking(t *testing.T) {
 	file := &upspin.DirEntry{Name: "a@b.com/f", SignedName: "a@b.com/f", Packing: upspin.EEPack}
 	dir := &upspin.DirEntry{Name: "a@b.com/d", SignedName: "a@b.com/d", Attr: upspin.AttrDirectory, Packing: upspin.EEPack}

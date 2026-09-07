@@ -346,6 +346,8 @@ func TestReference(t *testing.T) {
 // TestDirEntryEEPQDisabled checks that an entry in the eepq packing is
 // invalid until the packing is enabled, so that a directory server that
 // was not started with the -eepq flag rejects it.
+// It flips the process-wide packing switch, so it must not call
+// t.Parallel and no other test in the package may run alongside it.
 func TestDirEntryEEPQDisabled(t *testing.T) {
 	entry := &upspin.DirEntry{
 		Name:       "joe@blow.com/file",
