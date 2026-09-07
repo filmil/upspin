@@ -48,11 +48,7 @@ The nightly fuzz job is the only asynchronous input.
    struct under both packings, so that a change to one byte fails and the
    fixture must be updated on purpose.
 6. **Combiner known answer vectors.** Landed in PR #78.
-7. **Tamper matrix.**
-   `TestTamperMatrix` flips the first and last bit of every packdata
-   field and checks that `Unpack` rejects the result under both packings.
-   Still to do: entries with several readers and the all-users wrap, and
-   the same matrix for `Name`, `SetTime` and `Countersign`.
+7. **Tamper matrix.** Landed in PR #82.
 8. **Key and packing confusion.**
    `TestConfusion`, `TestCrossKeyPQ` and `TestUnpackWithoutDecapsulator`
    cover the wrong reader, eepq packdata as ee and the reverse, an
