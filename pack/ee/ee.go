@@ -408,7 +408,7 @@ func (ee ee) Share(cfg upspin.Config, readers []upspin.PublicKey, packdataSlice 
 		var pd packdata
 		if err := pd.Unmarshal(*d); err != nil {
 			log.Error.Printf("pack/ee.Share: packdata unmarshal failed: %v", err)
-			for jj := j; j < len(packdataSlice); jj++ {
+			for jj := j; jj < len(packdataSlice); jj++ {
 				packdataSlice[jj] = nil
 			}
 			return
