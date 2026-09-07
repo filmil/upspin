@@ -17,26 +17,16 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Get Date
-        id: get-date
-        run: echo "date=$(date -u '+%Y-%m-%d')" >> $GITHUB_OUTPUT
-
-      - name: Mount Bazel cache
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cache/bazel
-            .bazel-cache
-          key: bazel-cache-${{ runner.os }}-${{ steps.get-date.outputs.date }}-${{ github.run_id }}
-          restore-keys: |
-            bazel-cache-${{ runner.os }}-${{ steps.get-date.outputs.date }}-
-            bazel-cache-${{ runner.os }}-
-
+      # setup-bazel keeps three caches, all keyed by content: Bazelisk
+      # downloads, the repository cache (by MODULE files) and the Bazel disk
+      # cache (by BUILD files), the last one under a per-job name so that
+      # jobs do not race to save the same key and each restores its own.
       - name: Install Bazel
-        uses: bazel-contrib/setup-bazel@0.8.5
+        uses: bazel-contrib/setup-bazel@0.19.0
         with:
           bazelisk-cache: true
-          disk-cache: ${{ github.workspace }}/.bazel-cache
+          disk-cache: ${{ github.job }}
+          repository-cache: true
 
       - name: Bazel Build
         run: bazel build //...
@@ -60,26 +50,16 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Get Date
-        id: get-date
-        run: echo "date=$(date -u '+%Y-%m-%d')" >> $GITHUB_OUTPUT
-
-      - name: Mount Bazel cache
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cache/bazel
-            .bazel-cache
-          key: bazel-race-cache-${{ runner.os }}-${{ steps.get-date.outputs.date }}-${{ github.run_id }}
-          restore-keys: |
-            bazel-race-cache-${{ runner.os }}-${{ steps.get-date.outputs.date }}-
-            bazel-race-cache-${{ runner.os }}-
-
+      # setup-bazel keeps three caches, all keyed by content: Bazelisk
+      # downloads, the repository cache (by MODULE files) and the Bazel disk
+      # cache (by BUILD files), the last one under a per-job name so that
+      # jobs do not race to save the same key and each restores its own.
       - name: Install Bazel
-        uses: bazel-contrib/setup-bazel@0.8.5
+        uses: bazel-contrib/setup-bazel@0.19.0
         with:
           bazelisk-cache: true
-          disk-cache: ${{ github.workspace }}/.bazel-cache
+          disk-cache: ${{ github.job }}
+          repository-cache: true
 
       - name: Bazel Test with the race detector
         run: bazel test --@rules_go//go/config:race --test_output=errors //pack/... //factotum/... //client/...
@@ -119,32 +99,24 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Get Date
-        id: get-date
-        run: echo "date=$(date -u '+%Y-%m-%d')" >> $GITHUB_OUTPUT
-
-      - name: Mount Bazel cache
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cache/bazel
-            .bazel-cache
-          key: bazel-cache-${{ runner.os }}-${{ steps.get-date.outputs.date }}-${{ github.run_id }}
-          restore-keys: |
-            bazel-cache-${{ runner.os }}-${{ steps.get-date.outputs.date }}-
-            bazel-cache-${{ runner.os }}-
-
+      # setup-bazel keeps three caches, all keyed by content: Bazelisk
+      # downloads, the repository cache (by MODULE files) and the Bazel disk
+      # cache (by BUILD files), the last one under a per-job name so that
+      # jobs do not race to save the same key and each restores its own.
       - name: Install Bazel
-        uses: bazel-contrib/setup-bazel@0.8.5
+        uses: bazel-contrib/setup-bazel@0.19.0
         with:
           bazelisk-cache: true
-          disk-cache: ${{ github.workspace }}/.bazel-cache
+          disk-cache: ${{ github.job }}
+          repository-cache: true
 
       # The .pb.go files in the tree are symlinks into bazel-bin, so a
       # plain Go toolchain cannot compile the tree until Bazel has
-      # generated them.
+      # generated them. The generated sources are intermediate outputs,
+      # which a warm disk cache would not write to bazel-bin by default
+      # (--remote_download_outputs=toplevel), hence the flag.
       - name: Build the generated protobuf sources
-        run: bazel build //upspin/proto:proto_go_proto //rpc/testdata:prototest_go_proto
+        run: bazel build --remote_download_outputs=all //upspin/proto:proto_go_proto //rpc/testdata:prototest_go_proto
 
       - name: Install Go
         uses: actions/setup-go@v5
@@ -168,32 +140,24 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Get Date
-        id: get-date
-        run: echo "date=$(date -u '+%Y-%m-%d')" >> $GITHUB_OUTPUT
-
-      - name: Mount Bazel cache
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cache/bazel
-            .bazel-cache
-          key: bazel-cache-${{ runner.os }}-${{ steps.get-date.outputs.date }}-${{ github.run_id }}
-          restore-keys: |
-            bazel-cache-${{ runner.os }}-${{ steps.get-date.outputs.date }}-
-            bazel-cache-${{ runner.os }}-
-
+      # setup-bazel keeps three caches, all keyed by content: Bazelisk
+      # downloads, the repository cache (by MODULE files) and the Bazel disk
+      # cache (by BUILD files), the last one under a per-job name so that
+      # jobs do not race to save the same key and each restores its own.
       - name: Install Bazel
-        uses: bazel-contrib/setup-bazel@0.8.5
+        uses: bazel-contrib/setup-bazel@0.19.0
         with:
           bazelisk-cache: true
-          disk-cache: ${{ github.workspace }}/.bazel-cache
+          disk-cache: ${{ github.job }}
+          repository-cache: true
 
       # The .pb.go files in the tree are symlinks into bazel-bin, so a
       # plain Go toolchain cannot compile the tree until Bazel has
-      # generated them.
+      # generated them. The generated sources are intermediate outputs,
+      # which a warm disk cache would not write to bazel-bin by default
+      # (--remote_download_outputs=toplevel), hence the flag.
       - name: Build the generated protobuf sources
-        run: bazel build //upspin/proto:proto_go_proto //rpc/testdata:prototest_go_proto
+        run: bazel build --remote_download_outputs=all //upspin/proto:proto_go_proto //rpc/testdata:prototest_go_proto
 
       - name: Install Go
         uses: actions/setup-go@v5
@@ -245,26 +209,16 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Get Date
-        id: get-date
-        run: echo "date=$(date -u '+%Y-%m-%d')" >> $GITHUB_OUTPUT
-
-      - name: Mount Bazel cache
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cache/bazel
-            .bazel-cache
-          key: bazel-cache-${{ runner.os }}-${{ steps.get-date.outputs.date }}-${{ github.run_id }}
-          restore-keys: |
-            bazel-cache-${{ runner.os }}-${{ steps.get-date.outputs.date }}-
-            bazel-cache-${{ runner.os }}-
-
+      # setup-bazel keeps three caches, all keyed by content: Bazelisk
+      # downloads, the repository cache (by MODULE files) and the Bazel disk
+      # cache (by BUILD files), the last one under a per-job name so that
+      # jobs do not race to save the same key and each restores its own.
       - name: Install Bazel
-        uses: bazel-contrib/setup-bazel@0.8.5
+        uses: bazel-contrib/setup-bazel@0.19.0
         with:
           bazelisk-cache: true
-          disk-cache: ${{ github.workspace }}/.bazel-cache
+          disk-cache: ${{ github.job }}
+          repository-cache: true
 
       - name: Old binary against new binary
         run: .github/scripts/compat.sh ${{ github.event.pull_request.base.sha }}
@@ -279,29 +233,19 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Get Date
-        id: get-date
-        run: echo "date=$(date -u '+%Y-%m-%d')" >> $GITHUB_OUTPUT
-
-      - name: Mount Bazel cache
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cache/bazel
-            .bazel-cache
-          key: bazel-cache-${{ runner.os }}-${{ steps.get-date.outputs.date }}-${{ github.run_id }}
-          restore-keys: |
-            bazel-cache-${{ runner.os }}-${{ steps.get-date.outputs.date }}-
-            bazel-cache-${{ runner.os }}-
-
+      # setup-bazel keeps three caches, all keyed by content: Bazelisk
+      # downloads, the repository cache (by MODULE files) and the Bazel disk
+      # cache (by BUILD files), the last one under a per-job name so that
+      # jobs do not race to save the same key and each restores its own.
       - name: Install Bazel
-        uses: bazel-contrib/setup-bazel@0.8.5
+        uses: bazel-contrib/setup-bazel@0.19.0
         with:
           bazelisk-cache: true
-          disk-cache: ${{ github.workspace }}/.bazel-cache
+          disk-cache: ${{ github.job }}
+          repository-cache: true
 
       - name: Build the generated protobuf sources
-        run: bazel build //upspin/proto:proto_go_proto //rpc/testdata:prototest_go_proto
+        run: bazel build --remote_download_outputs=all //upspin/proto:proto_go_proto //rpc/testdata:prototest_go_proto
 
       - name: Fuzz for 60 seconds per target
         run: .github/scripts/fuzz.sh 60s
