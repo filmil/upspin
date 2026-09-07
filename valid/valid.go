@@ -8,6 +8,8 @@
 package valid // import "upspin.io/valid"
 
 import (
+	"os"
+	"path/filepath"
 	"strconv"
 
 	"upspin.io/access"
@@ -165,10 +167,12 @@ func DirEntry(entry *upspin.DirEntry) error {
 	case upspin.PlainPack, upspin.EEPack, upspin.EEIntegrityPack:
 		// OK
 	case upspin.EEPQPack:
-		// Opt-in: a server or client that was not started with the
-		// -eepq flag must not accept entries in this packing.
+		// Opt-in: a directory server that was not started with the
+		// -eepq flag must not accept entries in this packing. The
+		// message names the server, since the client that sees it may
+		// well have been started with the flag itself.
 		if !pack.Enabled(upspin.EEPQPack) {
-			return errors.E(op, errors.Invalid, entry.Name, errors.Errorf("packing %s is disabled; start with the -eepq flag to accept it", entry.Packing))
+			return errors.E(op, errors.Invalid, entry.Name, errors.Errorf("packing %s is disabled on this directory server (%s); start it with the -eepq flag to accept such entries", entry.Packing, processName()))
 		}
 	case upspin.UnassignedPack:
 		if entry.IsDir() {
@@ -228,4 +232,13 @@ func Reference(ref upspin.Reference) error {
 		previ = i
 	}
 	return nil
+}
+
+// processName returns the base name of the running program, for error
+// messages that must say which process lacks a flag.
+func processName() string {
+	if len(os.Args) == 0 {
+		return "unknown"
+	}
+	return filepath.Base(os.Args[0])
 }

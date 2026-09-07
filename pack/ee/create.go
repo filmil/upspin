@@ -70,7 +70,7 @@ func CreateKeys(keyType string, entropy []byte) (public upspin.PublicKey, privat
 		return public, private, errors.E(op, err)
 	}
 	if kem != factotum.NoKEM && !EEPQEnabled() {
-		return public, private, errors.E(op, errEEPQDisabled)
+		return public, private, errors.E(op, errEEPQDisabled())
 	}
 	if kem != factotum.NoKEM && len(entropy) < 32 {
 		return public, private, errors.E(op, errors.Invalid, errors.Errorf("key type %s needs 32 bytes of entropy; got %d", keyType, len(entropy)))

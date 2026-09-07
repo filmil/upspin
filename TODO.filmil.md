@@ -148,13 +148,7 @@ The nightly fuzz job is the only asynchronous input.
     `FuzzSecretFromProquint`, and commit a `testdata/fuzz` corpus so that
     a crasher found once stays a regression test.
     (Overlaps item 10.)
-21. **Errors must name the process that lacks the flag.**
-    `valid.DirEntry` says "packing eepq is disabled; start with the -eepq
-    flag to accept it"; the directory server generates it and the client
-    shows it to a user who did start with the flag.
-    `errEEPQDisabled` has the same shape when a server hits it reading an
-    Access file.
-    Say which host: "directory server not started with -eepq".
+21. **Errors must name the process that lacks the flag.** Landed in PR #71.
 22. **`requirepacking` and the upspinfs cache.** Landed in PR #70.
 23. **`flags` imports `pack/ee` only to read and write the switch.** Landed in PR #68.
 24. **`TestNonceUniquePQ` tests the random source, not the property.**

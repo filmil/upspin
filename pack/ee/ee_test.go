@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -1029,6 +1030,8 @@ func TestEEPQDisabledByDefault(t *testing.T) {
 	defer ee.SetEEPQEnabled(true)
 	if _, err := packer.Pack(cfg, d); !errors.Is(errors.Permission, err) {
 		t.Errorf("Pack while disabled: got %v, want Permission", err)
+	} else if !strings.Contains(err.Error(), filepath.Base(os.Args[0])) {
+		t.Errorf("Pack while disabled: error does not name the process: %v", err)
 	}
 	if _, err := packer.Unpack(cfg, d); !errors.Is(errors.Permission, err) {
 		t.Errorf("Unpack while disabled: got %v, want Permission", err)

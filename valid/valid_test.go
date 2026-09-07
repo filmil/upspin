@@ -5,6 +5,9 @@
 package valid
 
 import (
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"upspin.io/access"
@@ -368,6 +371,8 @@ func TestDirEntryEEPQDisabled(t *testing.T) {
 	err := DirEntry(entry)
 	if !errors.Is(errors.Invalid, err) {
 		t.Errorf("DirEntry with eepq disabled: got %v, want Invalid", err)
+	} else if !strings.Contains(err.Error(), "directory server") || !strings.Contains(err.Error(), filepath.Base(os.Args[0])) {
+		t.Errorf("DirEntry with eepq disabled: error does not name the server process: %v", err)
 	}
 	pack.SetEnabled(upspin.EEPQPack, true)
 	if err := DirEntry(entry); err != nil {
