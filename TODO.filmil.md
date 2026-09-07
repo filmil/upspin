@@ -99,10 +99,7 @@ The nightly fuzz job is the only asynchronous input.
     Fail the PR when `pack/ee`, `pack/packutil`, `factotum` or
     `key/keygen` fall below 90 percent line coverage, from
     `bazel coverage --combined_report=lcov`.
-12. **Race detector.**
-    Run the `pack/...`, `factotum` and `client/...` tests with `-race`
-    (`bazel test --@rules_go//go/config:race`).
-    About three minutes.
+12. **Race detector.** Landed in PR #62.
 
 ### Compatibility
 
