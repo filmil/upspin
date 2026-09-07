@@ -8,7 +8,7 @@ go_library(
     deps = [
         "//config",
         "//log",
-        "//pack/ee",
+        "//pack",
         "//upspin",
     ],
 )

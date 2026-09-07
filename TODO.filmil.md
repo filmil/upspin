@@ -163,9 +163,7 @@ The nightly fuzz job is the only asynchronous input.
     config line was added is served from the cache without it.
     Defensible, since the cache is cleartext already, but the doc must
     say "except files already in the upspinfs cache".
-23. **`flags` imports `pack/ee` only to read and write the switch.**
-    `pack.Enabled` and `pack.SetEnabled` are the state now; use them in
-    the flag and drop the crypto import from the `flags` package.
+23. **`flags` imports `pack/ee` only to read and write the switch.** Landed in PR #68.
 24. **`TestNonceUniquePQ` tests the random source, not the property.**
     Sixty-four random 96 bit nonces can only collide if the source is
     broken, and then every other test fails first.

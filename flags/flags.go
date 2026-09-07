@@ -16,7 +16,7 @@ import (
 
 	"upspin.io/config"
 	"upspin.io/log"
-	"upspin.io/pack/ee"
+	"upspin.io/pack"
 	"upspin.io/upspin"
 )
 
@@ -170,7 +170,7 @@ var flags = map[string]*flagVar{
 			fs.Var(&eepq, "eepq", "enable the eepq post-quantum packing and post-quantum key types")
 		},
 		arg: func() string {
-			if ee.EEPQEnabled() {
+			if pack.Enabled(upspin.EEPQPack) {
 				return "-eepq"
 			}
 			return ""
@@ -355,14 +355,15 @@ func strArg(name, value, _default string) string {
 
 // eepqFlag implements flag.Value for -eepq ("eepq"). The flag has no
 // variable of its own: its state is the pack registry's, read through
-// ee.EEPQEnabled and written through ee.SetEEPQEnabled, so that there is
-// one switch for the whole process.
+// pack.Enabled and written through pack.SetEnabled, so that there is one
+// switch for the whole process and this package does not import the
+// packer.
 type eepqFlag struct{}
 
 var eepq eepqFlag
 
 // String implements flag.Value.
-func (eepqFlag) String() string { return strconv.FormatBool(ee.EEPQEnabled()) }
+func (eepqFlag) String() string { return strconv.FormatBool(pack.Enabled(upspin.EEPQPack)) }
 
 // Set implements flag.Value.
 func (eepqFlag) Set(v string) error {
@@ -370,7 +371,7 @@ func (eepqFlag) Set(v string) error {
 	if err != nil {
 		return err
 	}
-	ee.SetEEPQEnabled(on)
+	pack.SetEnabled(upspin.EEPQPack, on)
 	return nil
 }
 
