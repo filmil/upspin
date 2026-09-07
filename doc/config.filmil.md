@@ -19,6 +19,7 @@ The settings below were added for the `eepq` packing; see
 * The **`requirepacking`** setting names a packing that every regular
   file must have.
   The client refuses to write a file under another packing and refuses to
-  read a file served with another packing.
+  read a file served with another packing, except for files already in
+  the `upspinfs` cache.
   Directories, links, and Access and Group files are exempt.
   It is unset by default.
