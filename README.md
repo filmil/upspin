@@ -5,6 +5,11 @@
 [![Publish to my Bazel registry](https://github.com/filmil/upspin/actions/workflows/publish.yml/badge.svg)](https://github.com/filmil/upspin/actions/workflows/publish.yml)
 [![Publish on Bazel Central Registry](https://github.com/filmil/upspin/actions/workflows/publish-bcr.yml/badge.svg)](https://github.com/filmil/upspin/actions/workflows/publish-bcr.yml)
 
+**Feature improvements made in this fork are described in
+[README.filmil.md](README.filmil.md).**
+The rest of this file is the maintenance note below followed by the
+original Upspin README.
+
 **2026-04-18 update: Reviving Upspin source code**
 
 I am reviving the Upspin source code in this repository. The goal is to keep the project building with modern tools (like [bazel](https://bazel.build)), and provide a working environment for those who still find Upspin's concepts valuable.
