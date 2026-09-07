@@ -983,7 +983,7 @@ func crypt(out, in []byte, blockCipher cipher.Block, offset int64) error {
 	iv[bs-7] = byte(ivStart >> 48)
 	iv[bs-8] = byte(ivStart >> 56)
 
-	ctr := cipher.NewCTR(blockCipher, iv)
+	ctr := cipher.NewCTR(blockCipher, iv) // #nosec G407 -- the IV is zero by design; see the comment above: the key is fresh per file and the counter is the block offset.
 
 	// If this offset is not an even multiple of streamBufferSize
 	// xor some empty data to synchronize it.

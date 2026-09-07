@@ -126,7 +126,7 @@ func (r *remote) Watch(name upspin.PathName, sequence int64, done <-chan struct{
 				if !ok {
 					return
 				}
-				e, err := proto.UpspinEvent(&ep)
+				e, err := proto.UpspinEvent(ep)
 				if err != nil {
 					op.logErr(err)
 					return
@@ -153,11 +153,11 @@ func (r *remote) Watch(name upspin.PathName, sequence int64, done <-chan struct{
 	return events, nil
 }
 
-type eventStream chan proto.Event
+type eventStream chan *proto.Event
 
 func (s eventStream) Send(b []byte, done <-chan struct{}) error {
-	var e proto.Event
-	if err := pb.Unmarshal(b, &e); err != nil {
+	e := new(proto.Event)
+	if err := pb.Unmarshal(b, e); err != nil {
 		return err
 	}
 	select {
@@ -170,7 +170,7 @@ func (s eventStream) Send(b []byte, done <-chan struct{}) error {
 func (s eventStream) Close() { close(s) }
 
 func (s eventStream) Error(err error) {
-	s <- proto.Event{Error: errors.MarshalError(err)}
+	s <- &proto.Event{Error: errors.MarshalError(err)}
 }
 
 // Endpoint implements upspin.StoreServer.Endpoint.

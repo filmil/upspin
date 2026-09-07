@@ -356,7 +356,7 @@ func TestFileRandomAccess(t *testing.T) {
 			}
 		}
 	}
-	n, err = f.ReadAt(result, 1)
+	_, err = f.ReadAt(result, 1)
 	if err == nil {
 		t.Fatal("expected err==io.EOF from ReadAt, got err==nil")
 	}

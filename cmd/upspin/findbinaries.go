@@ -21,7 +21,7 @@ func findUpspinBinaries() []string {
 		if dir == "" {
 			dir = "."
 		}
-		fd, err := os.Open(dir)
+		fd, err := os.Open(dir) // #nosec G703 -- dir is an element of the user's own PATH.
 		if err != nil {
 			continue
 		}

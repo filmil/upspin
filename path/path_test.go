@@ -117,11 +117,11 @@ func TestNelem(t *testing.T) {
 	for _, test := range nelemTests {
 		p, err := Parse(test.path)
 		if err != nil {
-			t.Errorf("error parsing %q: %v\n", test, err)
+			t.Errorf("error parsing %q: %v\n", test.path, err)
 		}
 		nelem := p.NElem()
 		if nelem != test.nelem {
-			t.Errorf("NElem(%q)=%d; expected %d", test, nelem, test.nelem)
+			t.Errorf("NElem(%q)=%d; expected %d", test.path, nelem, test.nelem)
 		}
 	}
 }
@@ -143,7 +143,7 @@ func TestElem(t *testing.T) {
 	for _, test := range elemTests {
 		p, err := Parse(test.path)
 		if err != nil {
-			t.Errorf("error parsing %q: %v\n", test, err)
+			t.Errorf("error parsing %q: %v\n", test.path, err)
 		}
 		elem := p.Elem(test.count)
 		if elem != string(test.expect) {
