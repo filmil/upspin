@@ -44,6 +44,7 @@ jobs:
       - name: Bazel Test
         run: bazel test --test_output=errors //...
 
+
   # The race detector on the packages that share state across goroutines:
   # the packer registry and packers, the factotum, and the client. Kept
   # to those packages so the job stays a few minutes long.
@@ -76,3 +77,19 @@ jobs:
 
       - name: Bazel Test with the race detector
         run: bazel test --@rules_go//go/config:race --test_output=errors //pack/... //factotum/... //client/...
+
+  # Secrets committed by mistake. The tree holds test keys on purpose;
+  # .github/gitleaks.toml allow-lists those paths and nothing else.
+  gitleaks:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .github/gitleaks.toml

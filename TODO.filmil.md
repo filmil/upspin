@@ -40,12 +40,7 @@ The nightly fuzz job is the only asynchronous input.
 2. **Run `govulncheck ./...` on every PR.**
    It reports known CVEs only in code paths the build reaches.
    About one minute.
-3. **Run `gitleaks` on the PR diff.**
-   The tree holds fixture keys under `key/testdata/pq*` and
-   `factotum/testdata/pq*`; the check is there to catch a real key
-   committed next to them.
-   Allow-list the fixture paths, not the patterns.
-   About 30 seconds.
+3. **Run `gitleaks` on the PR diff.** Landed in PR #64.
 4. **Lint commit trailers.** Landed in PR #65.
 
 ### Crypto unit tests
