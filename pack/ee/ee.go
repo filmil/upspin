@@ -31,6 +31,8 @@ import (
 	"fmt"
 	"io"
 	"math/big"
+	"os"
+	"path/filepath"
 
 	"golang.org/x/crypto/hkdf"
 
@@ -92,13 +94,28 @@ func SetEEPQEnabled(on bool) { pack.SetEnabled(upspin.EEPQPack, on) }
 // EEPQEnabled reports whether the EEPQPack packing is enabled.
 func EEPQEnabled() bool { return pack.Enabled(upspin.EEPQPack) }
 
-var errEEPQDisabled = errors.E(errors.Permission, errors.Str("the eepq packing is disabled; run with the -eepq flag to enable it"))
+// errEEPQDisabled returns the error for an operation on EEPQPack while it
+// is disabled. It names the process, since the error may be produced on a
+// server and shown to a user whose own client was started with the flag;
+// naming the flag alone would send that user to the wrong machine.
+func errEEPQDisabled() error {
+	return errors.E(errors.Permission, errors.Errorf("the eepq packing is disabled in this %s process; start it with the -eepq flag", processName()))
+}
+
+// processName returns the base name of the running program, for error
+// messages that must say which process lacks a flag.
+func processName() string {
+	if len(os.Args) == 0 {
+		return "unknown"
+	}
+	return filepath.Base(os.Args[0])
+}
 
 // checkEnabled returns errEEPQDisabled for an EEPQPack packer that has not
 // been enabled, and nil otherwise.
 func (ee ee) checkEnabled() error {
 	if ee.packing == upspin.EEPQPack && !EEPQEnabled() {
-		return errEEPQDisabled
+		return errEEPQDisabled()
 	}
 	return nil
 }
