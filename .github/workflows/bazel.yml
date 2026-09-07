@@ -43,3 +43,36 @@ jobs:
 
       - name: Bazel Test
         run: bazel test --test_output=errors //...
+
+  # The race detector on the packages that share state across goroutines:
+  # the packer registry and packers, the factotum, and the client. Kept
+  # to those packages so the job stays a few minutes long.
+  race:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Get Date
+        id: get-date
+        run: echo "date=$(date -u '+%Y-%m-%d')" >> $GITHUB_OUTPUT
+
+      - name: Mount Bazel cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/bazel
+            .bazel-cache
+          key: bazel-race-cache-${{ runner.os }}-${{ steps.get-date.outputs.date }}-${{ github.run_id }}
+          restore-keys: |
+            bazel-race-cache-${{ runner.os }}-${{ steps.get-date.outputs.date }}-
+            bazel-race-cache-${{ runner.os }}-
+
+      - name: Install Bazel
+        uses: bazel-contrib/setup-bazel@0.8.5
+        with:
+          bazelisk-cache: true
+          disk-cache: ${{ github.workspace }}/.bazel-cache
+
+      - name: Bazel Test with the race detector
+        run: bazel test --@rules_go//go/config:race --test_output=errors //pack/... //factotum/... //client/...
