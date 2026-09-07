@@ -122,11 +122,7 @@ The nightly fuzz job is the only asynchronous input.
     `experimental: eepq` as an equivalent opt-in that persists; an
     explicit line in the user's own config is the same consent as a
     flag.
-18. **Golden entries for plain and eeintegrity.**
-    The `GetBytes` change touched `pdUnmarshal` in both packers, and
-    only `ee` has a golden entry from `main`.
-    Add a `plain` and an `eeintegrity` golden entry generated with the
-    `origin/main` code, as `pack/ee/testdata/ee-golden.json` was.
+18. **Golden entries for plain and eeintegrity.** Landed in PR #75.
 19. **Wire `-race`, `govulncheck` and `gitleaks` into `bazel.yml`.**
     Items 1 to 3 and 12 describe the full stages; the minimum is two
     lines each in the existing workflow, since the tree now holds eight

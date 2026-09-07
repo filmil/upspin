@@ -19,7 +19,7 @@ go_library(
 go_test(
     name = "plain_test",
     srcs = ["plain_test.go"],
-    data = ["//key/testdata"],
+    data = ["//key/testdata"] + glob(["testdata/**"]),
     deps = [
         ":plain",
         "//config",
