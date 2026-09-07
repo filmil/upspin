@@ -70,12 +70,7 @@ The nightly fuzz job is the only asynchronous input.
 
 ### Compatibility
 
-13. **Main binary against PR binary.**
-    Check out `origin/main` in a worktree, build its `upspin` binary, and
-    with `upbox` have the old binary write `ee` files that the new binary
-    reads, then the reverse.
-    This makes "ee is untouched on the wire" something a machine checks.
-    About five minutes.
+13. **Main binary against PR binary.** Landed in PR #84.
 14. **Downgrade refusal test.** Landed in PR #76.
 
 ### From the third review

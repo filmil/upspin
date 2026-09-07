@@ -1,0 +1,14 @@
+load("@rules_go//go:def.bzl", "go_test")
+
+go_test(
+    name = "compat_test",
+    srcs = ["compat_test.go"],
+    data = [
+        "//cmd/cacheserver",
+        "//cmd/dirserver",
+        "//cmd/keyserver",
+        "//cmd/storeserver",
+        "//cmd/upspin",
+    ],
+    deps = ["//upbox"],
+)

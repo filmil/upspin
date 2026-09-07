@@ -48,6 +48,7 @@ jobs:
 
 
 
+
   # The race detector on the packages that share state across goroutines:
   # the packer registry and packers, the factotum, and the client. Kept
   # to those packages so the job stays a few minutes long.
@@ -84,6 +85,7 @@ jobs:
 
 
 
+
   # Secrets committed by mistake. The tree holds test keys on purpose;
   # .github/gitleaks.toml allow-lists those paths and nothing else.
   gitleaks:
@@ -99,6 +101,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_CONFIG: .github/gitleaks.toml
+
 
 
 
@@ -144,6 +147,7 @@ jobs:
 
       - name: Run govulncheck
         run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
 
 
   # Static analysis on a plain Go toolchain. go vet is enforced in full;
@@ -197,6 +201,7 @@ jobs:
       - name: gosec
         run: go run github.com/securego/gosec/v2/cmd/gosec@latest -quiet -severity high -confidence high ./...
 
+
   # Assistant commits must carry the trailers the SOP requires. On a pull
   # request the range is the PR's commits; on a push it is the pushed
   # commits.
@@ -216,3 +221,38 @@ jobs:
             echo "new branch; nothing to compare against"; exit 0
           fi
           .github/scripts/check_trailers.sh "$RANGE"
+
+  # The upspin binary from the base of the pull request and the one from
+  # the branch must read each other's files. See test/compat.
+  compat:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get Date
+        id: get-date
+        run: echo "date=$(date -u '+%Y-%m-%d')" >> $GITHUB_OUTPUT
+
+      - name: Mount Bazel cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/bazel
+            .bazel-cache
+          key: bazel-cache-${{ runner.os }}-${{ steps.get-date.outputs.date }}-${{ github.run_id }}
+          restore-keys: |
+            bazel-cache-${{ runner.os }}-${{ steps.get-date.outputs.date }}-
+            bazel-cache-${{ runner.os }}-
+
+      - name: Install Bazel
+        uses: bazel-contrib/setup-bazel@0.8.5
+        with:
+          bazelisk-cache: true
+          disk-cache: ${{ github.workspace }}/.bazel-cache
+
+      - name: Old binary against new binary
+        run: .github/scripts/compat.sh ${{ github.event.pull_request.base.sha }}
