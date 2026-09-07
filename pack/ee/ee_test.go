@@ -1017,6 +1017,8 @@ func TestUnpackWithoutDecapsulator(t *testing.T) {
 
 // TestEEPQDisabledByDefault checks that every operation of the eepq packer
 // fails until the -eepq flag enables it, and that ee is unaffected.
+// It flips the process-wide packing switch, so it must not call
+// t.Parallel and no other test in the package may run alongside it.
 func TestEEPQDisabledByDefault(t *testing.T) {
 	const name = upspin.PathName(pqJoe + "/disabled")
 	cfg, packer := setupPacking(pqJoe, upspin.EEPQPack)
