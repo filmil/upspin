@@ -527,32 +527,6 @@ func (l *clog) lookupGlob(pattern upspin.PathName) ([]*upspin.DirEntry, error, b
 	return entries, e.error, true
 }
 
-// complete returns true if (1) this was the result of a '*' glob and if
-// all its children are still valid in the LRU.
-//
-// Called with the glob entry locked.
-func (l *clog) complete(e *clogEntry) bool {
-	if !e.complete {
-		return false
-	}
-	// It's not complete unless all its children are still in the LRU.
-	for n := range e.children {
-		name := path.Join(e.name, n)
-		plock := l.pathLocks.lock(name)
-		ce := l.getFromLRU(lruKey{name: name, glob: false})
-		if ce == nil {
-			plock.Unlock()
-			return false
-		}
-		if ce.error != nil || ce.de == nil {
-			plock.Unlock()
-			return false
-		}
-		plock.Unlock()
-	}
-	return true
-}
-
 // globHasAccess looks to see if there is a glob for the name with
 // an Access file. it returns:
 // - the Access file's DirEntry and true if it does
@@ -911,18 +885,6 @@ func (l *clog) inSequence(name upspin.PathName, seq int64) bool {
 	}
 	l.sequenceLRU.Add(name, seq)
 	return true
-}
-
-// invalidate invalidates an entry but leaves it in the LRU to remember
-// our interest in it.
-func (e *clogEntry) invalidate() {
-	// Remember that we are still intereseted should a watch
-	// return this entry but mark it invalid.
-	if e.request != globReq {
-		e.request = obsoleteReq
-	} else {
-		e.complete = false
-	}
 }
 
 // appendToLogFile appends to the clog file.

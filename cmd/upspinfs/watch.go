@@ -7,6 +7,7 @@
 // merge them after they stop changing and I have a better idea of
 // exactly what needs to be abstracted.
 
+//go:build !windows
 // +build !windows
 
 package main // import "upspin.io/cmd/upspinfs"
@@ -30,9 +31,8 @@ const (
 
 // watchedRoot contains information about watched user directories.
 type watchedRoot struct {
-	f     *upspinFS
-	atime time.Time // time of last access
-	user  upspin.UserName
+	f    *upspinFS
+	user upspin.UserName
 
 	// ref is a count of user files we are watching in user's directory.
 	ref int
@@ -41,10 +41,6 @@ type watchedRoot struct {
 	// set outside the watcher before any watcher starts
 	// while reading the log files.
 	sequence int64
-
-	// ep is only used outside the watcher and is the
-	// endpoint of the server being watched.
-	ep upspin.Endpoint
 
 	die   chan bool // Closed to tell watcher to die.
 	dying chan bool // Closed to confirm watcher is dying.
@@ -59,7 +55,6 @@ type watchedRoot struct {
 type watchedRoots struct {
 	sync.Mutex
 
-	closing        bool      // When this is true do not allocate any new watchers.
 	f              *upspinFS // File system we are watching for.
 	m              map[upspin.UserName]*watchedRoot
 	invalidateChan chan *node
@@ -273,12 +268,10 @@ func (d *watchedRoot) watcher() {
 			log.Info.Printf("upspinfs.watcher: %s: %s", d.user, err)
 		}
 
-		select {
-		case <-time.After(d.retryInterval):
-			d.retryInterval *= 2
-			if d.retryInterval > maxRetryInterval {
-				d.retryInterval = maxRetryInterval
-			}
+		time.Sleep(d.retryInterval)
+		d.retryInterval *= 2
+		if d.retryInterval > maxRetryInterval {
+			d.retryInterval = maxRetryInterval
 		}
 	}
 }

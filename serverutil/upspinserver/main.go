@@ -112,7 +112,7 @@ func initServer(mode initMode) (*subcmd.ServerConfig, upspin.Config, *perm.Perm,
 	cfg = config.SetDirEndpoint(cfg, ep)
 	cfg = config.SetStoreEndpoint(cfg, ep)
 
-	if "" != serverConfig.KeyServer {
+	if serverConfig.KeyServer != "" {
 		cfg = config.SetKeyEndpoint(cfg, upspin.Endpoint{
 			Transport: upspin.Remote,
 			NetAddr:   serverConfig.KeyServer,
@@ -223,15 +223,15 @@ func (h *setupHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case "/":
 		fmt.Fprint(w, "Unconfigured Upspin Server")
 		return
-	default:
-		http.NotFound(w, r)
-		return
 	case "/setupserver":
 		if r.Method != "POST" {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
 		// The rest of this function is the setupserver handler.
+	default:
+		http.NotFound(w, r)
+		return
 	}
 
 	files := map[string][]byte{}

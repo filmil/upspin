@@ -29,8 +29,6 @@ import (
 	"upspin.io/pack/ee"
 )
 
-var inTest = false // Generate errors instead of logs for certain problems.
-
 // base implements upspin.Config, returning default values for all operations.
 type base struct{}
 

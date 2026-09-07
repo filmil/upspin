@@ -22,10 +22,6 @@ import (
 	_ "upspin.io/pack/plain"
 )
 
-func init() {
-	inTest = true
-}
-
 type expectations struct {
 	username    upspin.UserName
 	keyserver   upspin.Endpoint

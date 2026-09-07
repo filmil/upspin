@@ -20,6 +20,7 @@ import (
 )
 
 var (
+	//lint:ignore U1000 the flag stays registered for compatibility; nothing reads it
 	writethrough = flag.Bool("writethrough", false, "make storage cache writethrough")
 )
 
