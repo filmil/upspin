@@ -40,17 +40,33 @@ func FlipEncapBit(pd *[]byte) error {
 	return p.Marshal(pd, upspin.EEPQPack)
 }
 
-// Nonces returns the AES-GCM nonce of every wrapped key in a packdata.
-func Nonces(pd []byte, packing upspin.Packing) ([][]byte, error) {
+// WrapTranscript is the public part of one wrapped key: the ephemeral
+// point of the ECDH exchange and, under EEPQPack, the ML-KEM ciphertext.
+type WrapTranscript struct {
+	Ephemeral []byte // uncompressed SEC 1 point
+	Encap     []byte
+}
+
+// WrapTranscripts returns the transcript of every wrapped key in a packdata.
+func WrapTranscripts(pd []byte, packing upspin.Packing) ([]WrapTranscript, error) {
 	var p packdata
 	if err := p.Unmarshal(pd, packing); err != nil {
 		return nil, err
 	}
-	var nonces [][]byte
+	var out []WrapTranscript
 	for _, w := range p.wrap {
-		nonces = append(nonces, w.nonce)
+		var t WrapTranscript
+		if w.ephemeral.X != nil && w.ephemeral.X.Sign() != 0 {
+			point, err := marshalPoint(w.ephemeral.Curve, w.ephemeral.X, w.ephemeral.Y)
+			if err != nil {
+				return nil, err
+			}
+			t.Ephemeral = point
+		}
+		t.Encap = w.encap
+		out = append(out, t)
 	}
-	return nonces, nil
+	return out, nil
 }
 
 // RelabelWrap rewrites the key hash of the first wrapped key, so that a
