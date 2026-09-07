@@ -45,6 +45,7 @@ jobs:
         run: bazel test --test_output=errors //...
 
 
+
   # The race detector on the packages that share state across goroutines:
   # the packer registry and packers, the factotum, and the client. Kept
   # to those packages so the job stays a few minutes long.
@@ -78,6 +79,7 @@ jobs:
       - name: Bazel Test with the race detector
         run: bazel test --@rules_go//go/config:race --test_output=errors //pack/... //factotum/... //client/...
 
+
   # Secrets committed by mistake. The tree holds test keys on purpose;
   # .github/gitleaks.toml allow-lists those paths and nothing else.
   gitleaks:
@@ -93,3 +95,46 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_CONFIG: .github/gitleaks.toml
+
+  # Known vulnerabilities in code paths the build reaches. govulncheck
+  # needs a plain Go toolchain; it reads the version from go.mod.
+  govulncheck:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Get Date
+        id: get-date
+        run: echo "date=$(date -u '+%Y-%m-%d')" >> $GITHUB_OUTPUT
+
+      - name: Mount Bazel cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/bazel
+            .bazel-cache
+          key: bazel-cache-${{ runner.os }}-${{ steps.get-date.outputs.date }}-${{ github.run_id }}
+          restore-keys: |
+            bazel-cache-${{ runner.os }}-${{ steps.get-date.outputs.date }}-
+            bazel-cache-${{ runner.os }}-
+
+      - name: Install Bazel
+        uses: bazel-contrib/setup-bazel@0.8.5
+        with:
+          bazelisk-cache: true
+          disk-cache: ${{ github.workspace }}/.bazel-cache
+
+      # The .pb.go files in the tree are symlinks into bazel-bin, so a
+      # plain Go toolchain cannot compile the tree until Bazel has
+      # generated them.
+      - name: Build the generated protobuf sources
+        run: bazel build //upspin/proto:proto_go_proto //rpc/testdata:prototest_go_proto
+
+      - name: Install Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Run govulncheck
+        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...

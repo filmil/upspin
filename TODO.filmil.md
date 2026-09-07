@@ -37,9 +37,7 @@ The nightly fuzz job is the only asynchronous input.
    gosec rule sets; both already cover `bytes.Equal` on secrets, weak
    random sources and ignored errors.
    About one minute.
-2. **Run `govulncheck ./...` on every PR.**
-   It reports known CVEs only in code paths the build reaches.
-   About one minute.
+2. **Run `govulncheck ./...` on every PR.** Landed in PR #63.
 3. **Run `gitleaks` on the PR diff.** Landed in PR #64.
 4. **Lint commit trailers.** Landed in PR #65.
 
