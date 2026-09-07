@@ -40,13 +40,7 @@ The nightly fuzz job is the only asynchronous input.
 
 ### Crypto unit tests
 
-5. **Golden wire format for ee and eepq.**
-   PR #59 adds `pack/ee/testdata/ee-golden.json`, written by the code at
-   the fork point, and `eepq-golden.json`, written by the branch; a test
-   unpacks each.
-   Still to do: a byte-level golden of `packdata.Marshal` for a fixed
-   struct under both packings, so that a change to one byte fails and the
-   fixture must be updated on purpose.
+5. **Golden wire format for ee and eepq.** Landed in PR #77.
 6. **Combiner known answer vectors.** Landed in PR #78.
 7. **Tamper matrix.**
    `TestTamperMatrix` flips the first and last bit of every packdata

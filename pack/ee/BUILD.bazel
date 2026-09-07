@@ -29,6 +29,7 @@ go_test(
         "combiner_vectors_test.go",
         "ee_test.go",
         "export_test.go",
+        "golden_marshal_test.go",
         "packdata_test.go",
     ],
     data = ["//key/testdata"] + glob(["testdata/**"]),
