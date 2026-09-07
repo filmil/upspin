@@ -931,23 +931,51 @@ func testUnpackGolden(t *testing.T, file string, packing upspin.Packing) {
 	}
 }
 
-// TestNonceUniquePQ checks that every wrap draws a fresh AES-GCM nonce.
-func TestNonceUniquePQ(t *testing.T) {
-	cfg, packer := setupPacking(pqJoe, upspin.EEPQPack)
-	seen := make(map[string]bool)
-	for i := 0; i < 64; i++ {
-		name := upspin.PathName(fmt.Sprintf("%s/nonce/%d", pqJoe, i))
-		d := &upspin.DirEntry{Name: name, SignedName: name, Writer: pqJoe}
-		packBlob(t, cfg, packer, d, []byte("same text every time"))
-		nonces, err := ee.Nonces(d.Packdata, upspin.EEPQPack)
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, n := range nonces {
-			if seen[string(n)] {
-				t.Fatalf("nonce %x used twice", n)
+// TestFreshWrap checks the property the wrapping depends on: every wrap
+// draws a fresh ephemeral ECDH key and, under EEPQPack, a fresh ML-KEM
+// encapsulation, so that two wraps of the same key for the same reader,
+// and the wraps for two readers of one file, never share a transcript.
+// (A nonce collision test would only detect a broken random source.)
+func TestFreshWrap(t *testing.T) {
+	type user struct {
+		name    upspin.UserName
+		packing upspin.Packing
+	}
+	for _, u := range []user{{"joe@upspin.io", upspin.EEPack}, {pqJoe, upspin.EEPQPack}} {
+		cfg, packer := setupPacking(u.name, u.packing)
+		seenPoint := make(map[string]bool)
+		seenEncap := make(map[string]bool)
+		for i := 0; i < 8; i++ {
+			name := upspin.PathName(fmt.Sprintf("%s/fresh/%d", u.name, i))
+			d := &upspin.DirEntry{Name: name, SignedName: name, Writer: u.name}
+			packBlob(t, cfg, packer, d, []byte("same text every time"))
+			if u.packing == upspin.EEPQPack {
+				// Add a second reader so one file has two wraps.
+				bobCfg, _ := setupPacking(pqBob, upspin.EEPQPack)
+				shareBlob(t, cfg, packer, []upspin.PublicKey{cfg.Factotum().PublicKey(), bobCfg.Factotum().PublicKey()}, &d.Packdata)
 			}
-			seen[string(n)] = true
+			ts, err := ee.WrapTranscripts(d.Packdata, u.packing)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, w := range ts {
+				if len(w.Ephemeral) == 0 {
+					t.Fatalf("%s: wrap without an ephemeral point", u.packing)
+				}
+				if seenPoint[string(w.Ephemeral)] {
+					t.Fatalf("%s: ephemeral point reused across wraps", u.packing)
+				}
+				seenPoint[string(w.Ephemeral)] = true
+				if u.packing == upspin.EEPQPack {
+					if len(w.Encap) == 0 {
+						t.Fatalf("eepq: wrap without an ML-KEM ciphertext")
+					}
+					if seenEncap[string(w.Encap)] {
+						t.Fatalf("eepq: ML-KEM ciphertext reused across wraps")
+					}
+					seenEncap[string(w.Encap)] = true
+				}
+			}
 		}
 	}
 }

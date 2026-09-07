@@ -164,11 +164,7 @@ The nightly fuzz job is the only asynchronous input.
     Defensible, since the cache is cleartext already, but the doc must
     say "except files already in the upspinfs cache".
 23. **`flags` imports `pack/ee` only to read and write the switch.** Landed in PR #68.
-24. **`TestNonceUniquePQ` tests the random source, not the property.**
-    Sixty-four random 96 bit nonces can only collide if the source is
-    broken, and then every other test fails first.
-    Test that each wrap uses a fresh ephemeral key and a fresh
-    encapsulation, or delete the test.
+24. **`TestNonceUniquePQ` tests the random source, not the property.** Landed in PR #72.
 25. **Tests that toggle process-wide state.** Landed in PR #69.
 26. **Human review, for the fourth time.**
     Four rounds of review, all by an assistant.
