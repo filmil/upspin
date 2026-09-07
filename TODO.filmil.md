@@ -50,12 +50,7 @@ The nightly fuzz job is the only asynchronous input.
    Still to do: a byte-level golden of `packdata.Marshal` for a fixed
    struct under both packings, so that a change to one byte fails and the
    fixture must be updated on purpose.
-6. **Combiner known answer vectors.**
-   `TestStrongKeyVectors` pins the output of `strongKey` for fixed inputs
-   per key type.
-   Still to do: move the vectors and their inputs to a testdata file that
-   another implementation can check, and document how to regenerate them.
-   ML-KEM itself is not tested; `crypto/mlkem` runs the FIPS 203 vectors.
+6. **Combiner known answer vectors.** Landed in PR #78.
 7. **Tamper matrix.**
    `TestTamperMatrix` flips the first and last bit of every packdata
    field and checks that `Unpack` rejects the result under both packings.

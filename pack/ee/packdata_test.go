@@ -12,7 +12,6 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/binary"
-	"encoding/hex"
 	"fmt"
 	"io"
 	"math/big"
@@ -244,55 +243,6 @@ func TestStrongKey(t *testing.T) {
 		t.Errorf("strongKey accepted PlainPack")
 	}
 }
-
-// TestStrongKeyVectors pins the EEPQPack combiner to a fixed output for
-// each key type, so that a change to the keying material order, the
-// length prefixes or the label is caught even if it is self-consistent.
-// ML-KEM itself is not tested here; crypto/mlkem runs the FIPS 203 vectors.
-func TestStrongKeyVectors(t *testing.T) {
-	fill := func(n int, b byte) []byte {
-		s := make([]byte, n)
-		for i := range s {
-			s[i] = b
-		}
-		return s
-	}
-	cases := []struct {
-		keyType  string
-		pointLen int // uncompressed point size for the curve
-		encapLen int
-		want     string
-	}{
-		{"p256+mlkem768", 65, mlkem.CiphertextSize768, vectorP256},
-		{"p384+mlkem768", 97, mlkem.CiphertextSize768, vectorP384},
-		{"p521+mlkem1024", 133, mlkem.CiphertextSize1024, vectorP521},
-	}
-	for _, c := range cases {
-		w := wrappedKey{
-			keyHash: fill(sha256.Size, 0x11),
-			nonce:   fill(gcmStandardNonceSize, 0x22),
-			encap:   fill(c.encapLen, 0x33),
-		}
-		R := fill(c.pointLen, 0x44)
-		V := fill(c.pointLen, 0x55)
-		S := fill(c.pointLen, 0x66)
-		K := fill(mlkem.SharedKeySize, 0x77)
-		got, err := strongKey(upspin.EEPQPack, w, R, V, S, K)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if hex.EncodeToString(got) != c.want {
-			t.Errorf("%s: EEPQPack combiner vector changed:\n got %x\nwant %s", c.keyType, got, c.want)
-		}
-	}
-}
-
-// Expected outputs of TestStrongKeyVectors.
-const (
-	vectorP256 = "3bdea9d71cee664ba5ab6a874c6f89c8779afc8c9fbc6b2d1bafb038bc80e1e7"
-	vectorP384 = "1490c3f930c41dbc52f35b1339f9400a53ba5931e8456b59436e09d64aa92907"
-	vectorP521 = "bf61ef4a0148746dc9aef247f5913f0f191953cd30950b0515a92854cd8009c8"
-)
 
 // TestUnmarshalAllocation checks that a hostile packdata cannot make the
 // parser allocate much more than its own size: a packdata claiming the
