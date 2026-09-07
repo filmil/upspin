@@ -48,14 +48,7 @@ The nightly fuzz job is the only asynchronous input.
 
 ### Fuzz and race
 
-10. **Fuzz targets with a committed corpus.**
-    Targets: `FuzzUnmarshalEE`, `FuzzUnmarshalEEPQ`, `FuzzParsePublicKey`,
-    `FuzzParsePrivateKey`, `FuzzSecret2Archive`, `FuzzProquintSeed`
-    (PR #59 has `FuzzUnmarshal` for both packings).
-    Commit the corpus under `testdata/fuzz`.
-    Bazel does not drive the fuzz engine, so run this stage with plain
-    `go test -fuzz` outside Bazel, 60 seconds per target on every PR.
-    A nightly job runs one hour and opens a PR with new corpus entries.
+10. **Fuzz targets with a committed corpus.** Landed in PR #80.
 11. **Coverage gate.**
     Fail the PR when `pack/ee`, `pack/packutil`, `factotum` or
     `key/keygen` fall below 90 percent line coverage, from

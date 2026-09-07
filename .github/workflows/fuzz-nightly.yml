@@ -1,0 +1,74 @@
+name: Nightly fuzz
+
+# Runs every fuzz target for ten minutes, about an hour in all, and opens
+# a pull request with the corpus entries the engine found, so that each
+# night's run starts from the last one's discoveries.
+
+on:
+  schedule:
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Get Date
+        id: get-date
+        run: echo "date=$(date -u '+%Y-%m-%d')" >> $GITHUB_OUTPUT
+
+      - name: Mount Bazel cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/bazel
+            .bazel-cache
+          key: bazel-cache-${{ runner.os }}-${{ steps.get-date.outputs.date }}-${{ github.run_id }}
+          restore-keys: |
+            bazel-cache-${{ runner.os }}-${{ steps.get-date.outputs.date }}-
+            bazel-cache-${{ runner.os }}-
+
+      - name: Install Bazel
+        uses: bazel-contrib/setup-bazel@0.8.5
+        with:
+          bazelisk-cache: true
+          disk-cache: ${{ github.workspace }}/.bazel-cache
+
+      - name: Build the generated protobuf sources
+        run: bazel build //upspin/proto:proto_go_proto //rpc/testdata:prototest_go_proto
+
+      - name: Fuzz for ten minutes per target
+        run: .github/scripts/fuzz.sh 10m
+
+      - name: Open a pull request with new corpus entries
+        uses: peter-evans/create-pull-request@v7
+        with:
+          branch: fuzz/nightly-corpus
+          commit-message: |
+            test: add fuzz corpus entries from the nightly run
+
+            Corpus entries the nightly fuzz job found; see
+            .github/workflows/fuzz-nightly.yml.
+
+            This commit has been created by an automated workflow,
+            with human supervision at review time.
+
+            Prompt:
+            > (none: scheduled workflow)
+          title: "test: fuzz corpus entries from the nightly run"
+          body: |
+            Corpus entries found by the nightly fuzz job
+            (`.github/workflows/fuzz-nightly.yml`). Each is an input the
+            engine found interesting; committing them makes the next run
+            start where this one stopped. If the job failed, one of them
+            is a failing input that needs a fix.
+          add-paths: |
+            **/testdata/fuzz/**
+          delete-branch: true
