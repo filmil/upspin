@@ -80,14 +80,17 @@ func RelabelWrap(pd *[]byte, packing upspin.Packing, keyHash []byte) error {
 	return p.Marshal(pd, packing)
 }
 
-// Tamper flips the first or the last bit of the named field of the first
-// wrapped key, or of a top level field, in a marshalled packdata. Field
-// names are sig, sig2, keyHash, dkey, nonce, ephemeral.X, ephemeral.Y,
-// encap and blockSum.
-func Tamper(pd *[]byte, packing upspin.Packing, field string, last bool) error {
+// Tamper flips the first or the last bit of the named field of the
+// wrapped key at index wrap, or of a top level field, in a marshalled
+// packdata. Field names are sig, sig2, keyHash, dkey, nonce,
+// ephemeral.X, ephemeral.Y, encap and blockSum.
+func Tamper(pd *[]byte, packing upspin.Packing, field string, last bool, wrap int) error {
 	var p packdata
 	if err := p.Unmarshal(*pd, packing); err != nil {
 		return err
+	}
+	if wrap < 0 || wrap >= len(p.wrap) {
+		return errors.Errorf("no wrapped key %d", wrap)
 	}
 	flip := func(b []byte) {
 		if len(b) == 0 {
@@ -107,7 +110,7 @@ func Tamper(pd *[]byte, packing upspin.Packing, field string, last bool) error {
 		flip(b)
 		i.SetBytes(b)
 	}
-	w := &p.wrap[0]
+	w := &p.wrap[wrap]
 	switch field {
 	case "sig":
 		flipInt(p.sig.R)

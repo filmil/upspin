@@ -1084,57 +1084,148 @@ func TestEEPQDisabledByDefault(t *testing.T) {
 }
 
 // TestTamperMatrix flips the first and the last bit of every packdata
-// field and checks that Unpack rejects the result, under both packings.
+// field and checks that every operation that parses the bytes rejects the
+// result: Unpack, Name, SetTime and Countersign, under both packings, on
+// an entry with one reader, one with two readers (each wrap tampered in
+// turn) and one shared with all users (whose clear dkey is signed).
 // sig2 is the exception by design: it is a fallback signature consulted
-// only when sig fails, so damage to it changes nothing while sig is intact;
-// the last case checks that damage to both is rejected.
+// only when sig fails, so damage to it changes nothing while sig is
+// intact; a final case checks that damage to both is rejected.
 func TestTamperMatrix(t *testing.T) {
 	type user struct {
-		name    upspin.UserName
-		packing upspin.Packing
+		name, other, rotated upspin.UserName
+		packing              upspin.Packing
 	}
-	for _, u := range []user{{"joe@upspin.io", upspin.EEPack}, {pqJoe, upspin.EEPQPack}} {
+	users := []user{
+		{"joe@upspin.io", "bob@upspin.io", "joe2", upspin.EEPack},
+		{pqJoe, pqBob, "pqjoe2", upspin.EEPQPack},
+	}
+	for _, u := range users {
 		cfg, packer := setupPacking(u.name, u.packing)
-		name := upspin.PathName(u.name + "/tamper")
-		d := &upspin.DirEntry{Name: name, SignedName: name, Writer: u.name}
-		cipher := packBlob(t, cfg, packer, d, []byte("tamper matrix"))
+		otherCfg, _ := setupPacking(u.other, u.packing)
+		f2, err := factotum.NewFromDir(testutil.Repo("key", "testdata", string(u.rotated)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		self := cfg.Factotum().PublicKey()
+
+		// Three shapes of entry.
+		type shape struct {
+			label   string
+			readers []upspin.PublicKey // nil: leave the packer's own wraps
+		}
+		shapes := []shape{
+			{"one reader", nil},
+			{"two readers", []upspin.PublicKey{self, otherCfg.Factotum().PublicKey()}},
+			{"all users", []upspin.PublicKey{self, upspin.AllUsersKey}},
+		}
 		fields := []string{"sig", "sig2", "keyHash", "dkey", "nonce", "ephemeral.X", "ephemeral.Y", "blockSum"}
 		if u.packing == upspin.EEPQPack {
 			fields = append(fields, "encap")
 		}
-		for _, field := range fields {
-			for _, last := range []bool{false, true} {
-				e := *d
-				e.Packdata = append([]byte(nil), d.Packdata...)
-				if err := ee.Tamper(&e.Packdata, u.packing, field, last); err != nil {
-					t.Fatalf("%s %s: %v", u.packing, field, err)
-				}
-				_, err := packer.Unpack(cfg, &e)
-				if field == "sig2" {
-					if err != nil {
-						t.Errorf("%s: tampered sig2 with intact sig: got %v, want success", u.packing, err)
-					}
-					continue
-				}
-				if err == nil {
-					t.Errorf("%s: tampered %s (last=%t) was accepted", u.packing, field, last)
-				}
-			}
+		// The operations that parse and check the packdata.
+		ops := map[string]func(e *upspin.DirEntry) error{
+			"Unpack": func(e *upspin.DirEntry) error { _, err := packer.Unpack(cfg, e); return err },
+			"Name":   func(e *upspin.DirEntry) error { return packer.Name(cfg, e, e.Name+".renamed") },
+			"SetTime": func(e *upspin.DirEntry) error {
+				return packer.SetTime(cfg, e, e.Time+1)
+			},
+			"Countersign": func(e *upspin.DirEntry) error { return packer.Countersign(self, f2, e) },
 		}
-		// Both signatures damaged.
-		e := *d
-		e.Packdata = append([]byte(nil), d.Packdata...)
-		for _, field := range []string{"sig", "sig2"} {
-			if err := ee.Tamper(&e.Packdata, u.packing, field, false); err != nil {
+		for _, sh := range shapes {
+			name := upspin.PathName(fmt.Sprintf("%s/tamper/%s", u.name, strings.ReplaceAll(sh.label, " ", "-")))
+			d := &upspin.DirEntry{Name: name, SignedName: name, Writer: u.name, Time: 1725700000}
+			cipher := packBlob(t, cfg, packer, d, []byte("tamper matrix"))
+			if sh.readers != nil {
+				shareBlob(t, cfg, packer, sh.readers, &d.Packdata)
+			}
+			hashes, err := packer.ReaderHashes(d.Packdata)
+			if err != nil {
 				t.Fatal(err)
 			}
-		}
-		if _, err := packer.Unpack(cfg, &e); err == nil {
-			t.Errorf("%s: tampered sig and sig2 were accepted", u.packing)
-		}
-		// The untouched entry still opens.
-		if got := unpackBlob(t, cfg, packer, d, cipher); string(got) != "tamper matrix" {
-			t.Errorf("%s: untouched entry unpacked to %q", u.packing, got)
+			for wrap := range hashes {
+				// Each wrap is checked through the reader it belongs to:
+				// the owner runs every operation on its own wrap, and
+				// the other reader (or a user with no wrap, through the
+				// all-users wrap) unpacks with theirs. A wrap for one
+				// reader is not authenticated to another by design, so
+				// damage to it must leave the others unaffected, which
+				// the untouched-entry checks below confirm.
+				allUsers := bytes.Equal(hashes[wrap], factotum.AllUsersKeyHash)
+				ownWrap := bytes.Equal(hashes[wrap], factotum.KeyHash(self))
+				wrapOps := ops
+				if !ownWrap {
+					wrapOps = map[string]func(e *upspin.DirEntry) error{
+						"Unpack as " + string(u.other): func(e *upspin.DirEntry) error { _, err := packer.Unpack(otherCfg, e); return err },
+					}
+				}
+				for _, field := range fields {
+					if allUsers && (field == "nonce" || field == "ephemeral.X" || field == "ephemeral.Y" || field == "encap") {
+						continue // the all-users wrap has none of these
+					}
+					for _, last := range []bool{false, true} {
+						for opName, op := range wrapOps {
+							e := *d
+							e.Packdata = append([]byte(nil), d.Packdata...)
+							if err := ee.Tamper(&e.Packdata, u.packing, field, last, wrap); err != nil {
+								t.Fatalf("%s %s wrap %d %s: %v", u.packing, sh.label, wrap, field, err)
+							}
+							err := op(&e)
+							if field == "sig2" {
+								if err != nil {
+									t.Errorf("%s %s: %s with tampered sig2 and intact sig: got %v, want success", u.packing, sh.label, opName, err)
+								}
+								continue
+							}
+							if sh.label == "all users" && ownWrap && field == "keyHash" && opName != "Countersign" {
+								// With its own key hash damaged, the owner
+								// falls through to the all-users wrap, which
+								// grants everyone the clear file key; that is
+								// the wrap's purpose, so the operation succeeds.
+								// Countersign looks for the old key's wrap by
+								// hash and does not.
+								if err != nil {
+									t.Errorf("%s %s: %s with a damaged own key hash should fall back to the all-users wrap: %v", u.packing, sh.label, opName, err)
+								}
+								continue
+							}
+							if err == nil {
+								t.Errorf("%s %s wrap %d: %s accepted tampered %s (last=%t)", u.packing, sh.label, wrap, opName, field, last)
+							}
+						}
+					}
+				}
+			}
+			// Both signatures damaged.
+			e := *d
+			e.Packdata = append([]byte(nil), d.Packdata...)
+			for _, field := range []string{"sig", "sig2"} {
+				if err := ee.Tamper(&e.Packdata, u.packing, field, false, 0); err != nil {
+					t.Fatal(err)
+				}
+			}
+			for opName, op := range ops {
+				if err := op(&e); err == nil {
+					t.Errorf("%s %s: %s accepted tampered sig and sig2", u.packing, sh.label, opName)
+				}
+			}
+			// The untouched entry still passes every operation, for the
+			// owner and, where it has a wrap, for the other reader.
+			if got := unpackBlob(t, cfg, packer, d, cipher); string(got) != "tamper matrix" {
+				t.Errorf("%s %s: untouched entry unpacked to %q", u.packing, sh.label, got)
+			}
+			if sh.readers != nil {
+				if got := unpackBlob(t, otherCfg, packer, d, cipher); string(got) != "tamper matrix" {
+					t.Errorf("%s %s: untouched entry unpacked by %s to %q", u.packing, sh.label, u.other, got)
+				}
+			}
+			for opName, op := range ops {
+				e := *d
+				e.Packdata = append([]byte(nil), d.Packdata...)
+				if err := op(&e); err != nil {
+					t.Errorf("%s %s: %s on the untouched entry: %v", u.packing, sh.label, opName, err)
+				}
+			}
 		}
 	}
 }
