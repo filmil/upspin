@@ -48,7 +48,7 @@ func TestMultiBlockRoundTrip(t *testing.T, ctx upspin.Config, packer upspin.Pack
 	t.Logf("packed %v bytes into %v blocks", len(data), len(de.Blocks))
 
 	cleartextBlockOffsets := make([]int64, len(de.Blocks))
-	for i, _ := range cleartextBlockOffsets {
+	for i := range cleartextBlockOffsets {
 		if i > 0 {
 			cleartextBlockOffsets[i] = cleartextBlockOffsets[i-1] + de.Blocks[i-1].Size
 		}

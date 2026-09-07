@@ -129,6 +129,21 @@ The nightly fuzz job is the only asynchronous input.
 23. **`flags` imports `pack/ee` only to read and write the switch.** Landed in PR #68.
 24. **`TestNonceUniquePQ` tests the random source, not the property.** Landed in PR #72.
 25. **Tests that toggle process-wide state.** Landed in PR #69.
+27. **Deprecated crypto/elliptic calls in the ee packer.**
+    staticcheck SA1019 reports the packer's use of `elliptic.Marshal`
+    and `ScalarMult`, which must stay byte for byte to keep stored data
+    readable.
+    Replacing them with `crypto/ecdh` is a cryptographic change that
+    needs its own review; until then SA1019 is excluded in
+    `staticcheck.conf`.
+28. **staticcheck S, ST and U checks, and gosec below high/high.**
+    The staticcheck findings were fixed and those checks enforced in
+    PR #86, except the style checks ST1000, ST1003, ST1016 and ST1020,
+    which the upstream code never followed.
+    294 gosec findings below high severity and confidence (mostly G104
+    unhandled errors and G115 integer conversions) are still reported
+    but not gated.
+    Fix them in small batches and raise the gate.
 26. **Human review, for the fourth time.**
     Four rounds of review, all by an assistant.
     The parser, the combiner and the gating are in shape for a human

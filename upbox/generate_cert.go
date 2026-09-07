@@ -82,7 +82,7 @@ func generateCert(dir string) error {
 
 	derBytes, err := x509.CreateCertificate(rand.Reader, &template, &template, publicKey(priv), priv)
 	if err != nil {
-		return fmt.Errorf("Failed to create certificate: %s", err)
+		return fmt.Errorf("failed to create certificate: %s", err)
 	}
 
 	certOut, err := os.Create(filepath.Join(dir, "cert.pem"))

@@ -174,7 +174,3 @@ func (s *server) Fill(r io.Reader) error {
 	}
 	return nil
 }
-
-func (s *server) fill(r io.Reader) error {
-	return s.Fill(r)
-}

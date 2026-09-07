@@ -72,7 +72,7 @@ func init() {
 
 func checkTransport(s upspin.Service) {
 	if s == nil {
-		panic(fmt.Sprintf("nil service"))
+		panic("nil service")
 	}
 	if t := s.Endpoint().Transport; t != upspin.InProcess {
 		panic(fmt.Sprintf("bad transport %v, want inprocess", t))
@@ -674,14 +674,14 @@ func TestPutDuplicateAndRename(t *testing.T) {
 		t.Fatal("get file:", err)
 	}
 	if string(in) != text {
-		t.Fatal(fmt.Sprintf("contents of %q corrupted", original))
+		t.Fatalf("contents of %q corrupted", original)
 	}
 	in, err = client.Get(dup)
 	if err != nil {
 		t.Fatal("get file:", err)
 	}
 	if string(in) != text {
-		t.Fatal(fmt.Sprintf("contents of %q and %q don't match", original, dup))
+		t.Fatalf("contents of %q and %q don't match", original, dup)
 	}
 
 	// Rename the new file.
@@ -697,14 +697,14 @@ func TestPutDuplicateAndRename(t *testing.T) {
 		t.Fatal("get file:", err)
 	}
 	if string(in) != text {
-		t.Fatal(fmt.Sprintf("contents of %q and %q don't match", renamed, original))
+		t.Fatalf("contents of %q and %q don't match", renamed, original)
 	}
 }
 func TestPutDuplicateDifferentUser(t *testing.T) {
-	t.Run(fmt.Sprintf("packing=ee"), func(t *testing.T) {
+	t.Run("packing=ee", func(t *testing.T) {
 		testPutDuplicateDifferentUser(t, upspin.EEPack)
 	})
-	t.Run(fmt.Sprintf("packing=eeintegrity"), func(t *testing.T) {
+	t.Run("packing=eeintegrity", func(t *testing.T) {
 		testPutDuplicateDifferentUser(t, upspin.EEIntegrityPack)
 	})
 }

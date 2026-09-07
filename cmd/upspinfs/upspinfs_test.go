@@ -411,13 +411,13 @@ func TestExtendFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if bytes.Compare(b[offset1:offset1+len(buf1)], buf1) != 0 {
+	if !bytes.Equal(b[offset1:offset1+len(buf1)], buf1) {
 		t.Fatal("mismatch 1")
 	}
-	if bytes.Compare(b[offset2:offset2+len(buf2)], buf2) != 0 {
+	if !bytes.Equal(b[offset2:offset2+len(buf2)], buf2) {
 		t.Fatal("mismatch 2")
 	}
-	if bytes.Compare(b[offset3:offset3+len(buf3)], buf3) != 0 {
+	if !bytes.Equal(b[offset3:offset3+len(buf3)], buf3) {
 		t.Fatal("mismatch 3")
 	}
 }
@@ -787,7 +787,7 @@ func fatal(t *testing.T, args ...interface{}) {
 
 func fatalf(t *testing.T, format string, args ...interface{}) {
 	t.Helper()
-	t.Log(fmt.Sprintf(format, args...))
+	t.Logf(format, args...)
 	t.Log(string(rtdebug.Stack()))
 	t.FailNow()
 }

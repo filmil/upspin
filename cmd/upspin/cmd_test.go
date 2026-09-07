@@ -227,6 +227,8 @@ func fail(errStr string) func(t *testing.T, r *runner, cmd *cmdTest, stdout, std
 // dump is a post function that just prints the stdout and stderr.
 // If Continue is false, dump calls t.Fatal.
 // The function is handy when debugging cmdTest scripts.
+//
+//lint:ignore U1000 kept for use while debugging
 func dump(Continue bool) func(t *testing.T, r *runner, cmd *cmdTest, stdout, stderr string) {
 	return func(t *testing.T, r *runner, cmd *cmdTest, stdout, stderr string) {
 		t.Errorf("Stdout:\n%s\n", stdout)
