@@ -13,6 +13,13 @@ Unless otherwise instructed, only apply maintenance tasks to files in the git
 index, or uncommitted files, to avoid redoing work on files that are already
 committed to git.
 
+# Feature documentation
+
+Describe every feature improvement made in this fork in
+`README.filmil.md`, one section per feature.
+Do not add fork feature descriptions to `README.md`; it holds the
+original Upspin README plus a link to `README.filmil.md`.
+
 # Source control guidance
 
 
