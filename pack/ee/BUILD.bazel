@@ -26,6 +26,7 @@ go_library(
 go_test(
     name = "ee_test",
     srcs = [
+        "combiner_vectors_test.go",
         "ee_test.go",
         "export_test.go",
         "packdata_test.go",
