@@ -1,12 +1,15 @@
-name: Nightly fuzz
+name: Weekly fuzz
 
-# Runs every fuzz target for ten minutes, about an hour in all, and opens
-# a pull request with the corpus entries the engine found, so that each
-# night's run starts from the last one's discoveries.
+# Runs every fuzz target for ten minutes, about an hour in all, once a
+# week (Sunday 03:00 UTC) or on request, and opens a pull request with the
+# corpus entries the engine found, so that each run starts from the last
+# one's discoveries. Fuzzing is not part of the per-commit workflow: an
+# hour of it on every pull request is too slow, and bazel test still runs
+# the committed seed corpus of every target on each commit.
 
 on:
   schedule:
-    - cron: '0 3 * * *'
+    - cron: '0 3 * * 0'
   workflow_dispatch:
 
 permissions:
@@ -40,22 +43,22 @@ jobs:
       - name: Open a pull request with new corpus entries
         uses: peter-evans/create-pull-request@v7
         with:
-          branch: fuzz/nightly-corpus
+          branch: fuzz/weekly-corpus
           commit-message: |
-            test: add fuzz corpus entries from the nightly run
+            test: add fuzz corpus entries from the weekly run
 
-            Corpus entries the nightly fuzz job found; see
-            .github/workflows/fuzz-nightly.yml.
+            Corpus entries the weekly fuzz job found; see
+            .github/workflows/fuzz.yml.
 
             This commit has been created by an automated workflow,
             with human supervision at review time.
 
             Prompt:
             > (none: scheduled workflow)
-          title: "test: fuzz corpus entries from the nightly run"
+          title: "test: fuzz corpus entries from the weekly run"
           body: |
-            Corpus entries found by the nightly fuzz job
-            (`.github/workflows/fuzz-nightly.yml`). Each is an input the
+            Corpus entries found by the weekly fuzz job
+            (`.github/workflows/fuzz.yml`). Each is an input the
             engine found interesting; committing them makes the next run
             start where this one stopped. If the job failed, one of them
             is a failing input that needs a fix.
