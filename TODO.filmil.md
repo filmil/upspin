@@ -30,13 +30,10 @@ The nightly fuzz job is the only asynchronous input.
 
 ### Static analysis
 
-1. **Run `go vet`, `staticcheck` and `gosec` on every PR.**
-   They catch unchecked errors, `math/rand` in crypto code and unsafe
-   patterns.
-   Before writing a custom linter for anything, check the semgrep and
-   gosec rule sets; both already cover `bytes.Equal` on secrets, weak
-   random sources and ignored errors.
-   About one minute.
+1. **Run `go vet`, `staticcheck` and `gosec` on every PR.** Landed in
+   PR #66. staticcheck runs the SA checks except SA1019; the S, ST and U
+   checks and the deprecated crypto/elliptic calls in the ee packer
+   remain open (see item 27).
 2. **Run `govulncheck ./...` on every PR.** Landed in PR #63.
 3. **Run `gitleaks` on the PR diff.** Landed in PR #64.
 4. **Lint commit trailers.** Landed in PR #65.

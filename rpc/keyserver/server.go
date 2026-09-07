@@ -145,7 +145,7 @@ func (s *server) Put(session rpc.Session, reqBytes []byte) (pb.Message, error) {
 	if err != nil {
 		return nil, err
 	}
-	op := logf(session, "Put(%v)", req)
+	op := logf(session, "Put(%v)", &req)
 	s.incPutCounters()
 
 	user := proto.UpspinUser(req.User)

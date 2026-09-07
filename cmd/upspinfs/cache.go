@@ -346,7 +346,6 @@ func (cf *cachedFile) download(offset int64, size int64) error {
 		}
 		bi++
 	}
-	return nil
 }
 
 // close is called when the last handle for a node has been closed.

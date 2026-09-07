@@ -503,7 +503,7 @@ func (sc *Schema) Start() error {
 			dst := sc.Command(name)
 			
 			err := func() error {
-				in, err := os.Open(src)
+				in, err := os.Open(src) // #nosec G703 -- src comes from the schema the user wrote.
 				if err != nil {
 					return fmt.Errorf("failed to open pre-built binary %s: %v", src, err)
 				}
@@ -836,7 +836,7 @@ func waitReady(addr string) error {
 			KeepAlive: 5 * time.Second,
 		}).DialContext,
 		TLSClientConfig: &tls.Config{
-			InsecureSkipVerify: true,
+			InsecureSkipVerify: true, // #nosec G402 -- upbox talks to the local test servers it started, which use self-signed certificates.
 		},
 	}
 	req, _ := http.NewRequest("GET", url, nil)

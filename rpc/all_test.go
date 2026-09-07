@@ -206,11 +206,11 @@ func (c *client) Count(t *testing.T, start, count int32) {
 	}
 }
 
-type countStream chan testdata.CountResponse
+type countStream chan *testdata.CountResponse
 
 func (s countStream) Send(b []byte, done <-chan struct{}) error {
-	var e testdata.CountResponse
-	if err := pb.Unmarshal(b, &e); err != nil {
+	e := new(testdata.CountResponse)
+	if err := pb.Unmarshal(b, e); err != nil {
 		return err
 	}
 	select {
