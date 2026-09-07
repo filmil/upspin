@@ -26,7 +26,7 @@ These items come from a hostile review of the eepq post-quantum packing
 The review proposed a pipeline in which every stage blocks the merge:
 static analysis, crypto unit tests, fuzz and race, compatibility, the
 full test suite, human review, merge.
-The nightly fuzz job is the only asynchronous input.
+The weekly fuzz job is the only asynchronous input.
 
 ### Static analysis
 
