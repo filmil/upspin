@@ -196,3 +196,21 @@ func TestGeneratePostQuantum(t *testing.T) {
 		t.Errorf("FromSecret(seed) does not reproduce Generate's key pair")
 	}
 }
+
+// FuzzSecretFromProquint feeds the seed parser what a user could type on
+// the command line. It must not panic, and a seed that ValidSecretSeed
+// accepts must round-trip through secretFromProquint and proquint.
+func FuzzSecretFromProquint(f *testing.F) {
+	f.Add("latoj-katuf-kijuh-latuh.lanon-kunol-kinoz-lanuj")
+	f.Add(pqSeed)
+	f.Add("babab")
+	f.Add("")
+	f.Add("babab-babab-babab-babab.babab-babab-babab-babab/")
+	f.Fuzz(func(t *testing.T, seed string) {
+		ok := ValidSecretSeed(seed)
+		b := secretFromProquint(seed)
+		if ok && b.proquint() != seed {
+			t.Errorf("valid seed %q does not round-trip", seed)
+		}
+	})
+}

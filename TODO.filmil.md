@@ -112,18 +112,7 @@ The nightly fuzz job is the only asynchronous input.
 
 ### From the fourth review
 
-20. **Fuzz targets for the key parsers, with a committed corpus.**
-    `ParsePublicKey`, `ParseEncapsulationKey`, `parsePrivateKey` and the
-    `secret2.upspinkey` archive parser were rewritten, and `ParsePublicKey`
-    runs on every key a client fetches from a keyserver, which is
-    untrusted input in the same sense as packdata.
-    The change has one fuzz target, `FuzzUnmarshal`, with three seeds and
-    no corpus directory.
-    Add `FuzzParsePublicKey`, `FuzzParseEncapsulationKey`,
-    `FuzzParsePrivateKey`, `FuzzSecret2Archive` and
-    `FuzzSecretFromProquint`, and commit a `testdata/fuzz` corpus so that
-    a crasher found once stays a regression test.
-    (Overlaps item 10.)
+20. **Fuzz targets for the key parsers, with a committed corpus.** Landed in PR #73.
 21. **Errors must name the process that lacks the flag.** Landed in PR #71.
 22. **`requirepacking` and the upspinfs cache.** Landed in PR #70.
 23. **`flags` imports `pack/ee` only to read and write the switch.** Landed in PR #68.

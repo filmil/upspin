@@ -16,6 +16,7 @@ go_library(
 go_test(
     name = "keygen_test",
     srcs = ["keygen_test.go"],
+    data = glob(["testdata/**"]),
     embed = [":keygen"],
     deps = [
         "//factotum",
