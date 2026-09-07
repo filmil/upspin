@@ -7,6 +7,8 @@ package keygen
 import (
 	"bytes"
 	"crypto/mlkem"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -213,4 +215,95 @@ func FuzzSecretFromProquint(f *testing.F) {
 			t.Errorf("valid seed %q does not round-trip", seed)
 		}
 	})
+}
+
+// TestSaveKeys covers the file side of keygen: a first save, the refusal
+// to overwrite without rotate, the refusal to rotate without prior keys,
+// a rotation that archives the old pair to secret2.upspinkey in the form
+// factotum reads back, a duplicate save that changes nothing, and the
+// secret seed written as a comment after the private key.
+func TestSaveKeys(t *testing.T) {
+	const (
+		seed1 = "latoj-katuf-kijuh-latuh.lanon-kunol-kinoz-lanuj"
+		seed2 = "kajug-kidod-kajug-latoh.litoj-lanoh-latol-kinoh"
+	)
+	dir := t.TempDir()
+	pub1, priv1, _, err := FromSecret("p256", seed1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pub2, priv2, _, err := FromSecret("p384", seed2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	read := func(name string) string {
+		b, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		return string(b)
+	}
+
+	// Rotating before any keys exist is an error.
+	if err := SaveKeys(dir, true, pub1, priv1, seed1); err == nil {
+		t.Error("rotate with no prior keys: expected error")
+	}
+	// A first save writes both files; the seed follows the private key.
+	if err := SaveKeys(dir, false, pub1, priv1, seed1); err != nil {
+		t.Fatal(err)
+	}
+	if got := read("public.upspinkey"); got != pub1 {
+		t.Errorf("public.upspinkey = %q, want %q", got, pub1)
+	}
+	if got, want := read("secret.upspinkey"), strings.TrimSpace(priv1)+" # "+seed1+"\n"; got != want {
+		t.Errorf("secret.upspinkey = %q, want %q", got, want)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "secret2.upspinkey")); !os.IsNotExist(err) {
+		t.Errorf("secret2.upspinkey exists after a first save")
+	}
+	// Saving again without rotate is refused.
+	if err := SaveKeys(dir, false, pub2, priv2, seed2); err == nil {
+		t.Error("save over existing keys without rotate: expected error")
+	}
+	if got := read("public.upspinkey"); got != pub1 {
+		t.Errorf("refused save changed public.upspinkey")
+	}
+	// Rotation archives the old pair and installs the new one.
+	if err := SaveKeys(dir, true, pub2, priv2, seed2); err != nil {
+		t.Fatal(err)
+	}
+	if got := read("public.upspinkey"); got != pub2 {
+		t.Errorf("after rotate public.upspinkey = %q, want %q", got, pub2)
+	}
+	archive := read("secret2.upspinkey")
+	if !strings.HasPrefix(archive, "# EE") || !strings.Contains(archive, pub1) || !strings.Contains(archive, strings.TrimSpace(priv1)) {
+		t.Errorf("secret2.upspinkey does not hold the old pair: %q", archive)
+	}
+	// factotum reads the archive back and knows both keys.
+	f, err := factotum.NewFromDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.PublicKey() != upspin.PublicKey(pub2) {
+		t.Errorf("factotum current key is not the rotated key")
+	}
+	if _, err := f.PublicKeyFromHash(factotum.KeyHash(upspin.PublicKey(pub1))); err != nil {
+		t.Errorf("factotum does not know the archived key: %v", err)
+	}
+	// A rotation to the same pair changes nothing.
+	before := archive
+	if err := SaveKeys(dir, true, pub2, read("secret.upspinkey"), ""); err != nil {
+		t.Fatal(err)
+	}
+	if read("secret2.upspinkey") != before {
+		t.Errorf("rotating to the same keys grew the archive")
+	}
+	// A save into a directory that does not exist yet creates it.
+	sub := filepath.Join(dir, "new", "deeper")
+	if err := SaveKeys(sub, false, pub1, priv1, ""); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := strings.TrimSpace(func() string { b, _ := os.ReadFile(filepath.Join(sub, "secret.upspinkey")); return string(b) }()), strings.TrimSpace(priv1); got != want {
+		t.Errorf("secret.upspinkey without a seed = %q, want %q", got, want)
+	}
 }
