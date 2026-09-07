@@ -72,7 +72,10 @@ without it cannot read an Access or Group file that a post-quantum user
 wrote under **eepq**, so that user's tree fails access checks through it.
 Every failure names the flag.
 The switch is one process-wide value in the `pack` registry; the flag
-sets it, and it is advisory, since any code in the process can set it.
+sets it, and so does `experimental: eepq` in the config file, which
+`signup` writes next to `packing: eepq` so that the flag is not a tax on
+every invocation.
+The switch is advisory, since any code in the process can set it.
 The `-curve` flag of `keygen` and `signup` keeps its name for
 compatibility, but it now names a key type, which may include a KEM.
 

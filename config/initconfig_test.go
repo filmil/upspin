@@ -14,6 +14,7 @@ import (
 	"strings"
 	"testing"
 
+	"upspin.io/errors"
 	"upspin.io/pack"
 	"upspin.io/upspin"
 
@@ -265,5 +266,34 @@ func testConfig(t *testing.T, expect *expectations, configuration string) {
 	cmdflags := config.Value("cmdflags")
 	if !reflect.DeepEqual(expect.cmdflags, cmdflags) {
 		t.Errorf("got cmdflags\n\t%#v\nexpected\n\t%#v", cmdflags, expect.cmdflags)
+	}
+}
+
+// TestExperimentalEEPQ checks the persistent opt-in for the eepq packing.
+// It flips the process-wide packing switch, so it must not call
+// t.Parallel and no other test in the package may run alongside it.
+func TestExperimentalEEPQ(t *testing.T) {
+	defer pack.SetEnabled(upspin.EEPQPack, false)
+
+	// Without the opt-in the packing is refused.
+	pack.SetEnabled(upspin.EEPQPack, false)
+	_, err := InitConfig(strings.NewReader("username: u@example.com\nsecrets: none\npacking: eepq\n"))
+	if !errors.Is(errors.Permission, err) {
+		t.Errorf("packing eepq without opt-in: got %v, want Permission", err)
+	}
+	// With it, the config parses (ErrNoFactotum is the usual answer for
+	// "secrets: none") and the switch is on for the process.
+	_, err = InitConfig(strings.NewReader("username: u@example.com\nsecrets: none\nexperimental: eepq\npacking: eepq\n"))
+	if err != ErrNoFactotum {
+		t.Errorf("packing eepq with experimental: eepq: got %v, want ErrNoFactotum", err)
+	}
+	if !pack.Enabled(upspin.EEPQPack) {
+		t.Errorf("experimental: eepq did not enable the packing")
+	}
+	// An unknown feature is an error.
+	pack.SetEnabled(upspin.EEPQPack, false)
+	_, err = InitConfig(strings.NewReader("username: u@example.com\nsecrets: none\nexperimental: eepq, warp\n"))
+	if !errors.Is(errors.Invalid, err) {
+		t.Errorf("unknown experimental feature: got %v, want Invalid", err)
 	}
 }
