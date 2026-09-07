@@ -7,8 +7,11 @@ package plain_test
 import (
 	"bytes"
 	"crypto/rand"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"log"
+	"os"
 	"strings"
 	"testing"
 
@@ -207,4 +210,47 @@ func (d *dummyKey) Lookup(userName upspin.UserName) (*upspin.User, error) {
 }
 func (d *dummyKey) Dial(cc upspin.Config, e upspin.Endpoint) (upspin.Service, error) {
 	return d, nil
+}
+
+// TestUnpackGolden unpacks an entry written by the code at the fork point,
+// before the packdata parsers changed (testdata/plain-golden.json), so
+// that stored data is checked against the old binary's output rather than
+// against this package's own understanding of its format.
+func TestUnpackGolden(t *testing.T) {
+	var g struct {
+		Name, Writer, Text, Ciphertext, Packdata, BlockPackdata string
+		Time, BlockSize                                         int64
+	}
+	b, err := os.ReadFile(testutil.Repo("pack", "plain", "testdata", "plain-golden.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(b, &g); err != nil {
+		t.Fatal(err)
+	}
+	unhex := func(s string) []byte {
+		b, err := hex.DecodeString(s)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return b
+	}
+	cfg, packer := setup(upspin.UserName(g.Writer))
+	d := &upspin.DirEntry{
+		Name:       upspin.PathName(g.Name),
+		SignedName: upspin.PathName(g.Name),
+		Writer:     upspin.UserName(g.Writer),
+		Packing:    packer.Packing(),
+		Time:       upspin.Time(g.Time),
+		Packdata:   unhex(g.Packdata),
+		Blocks: []upspin.DirBlock{{
+			Location: upspin.Location{Reference: "golden"},
+			Size:     g.BlockSize,
+			Packdata: unhex(g.BlockPackdata),
+		}},
+	}
+	clear := unpackBlob(t, cfg, packer, d, unhex(g.Ciphertext))
+	if string(clear) != g.Text {
+		t.Errorf("golden text: got %q, want %q", clear, g.Text)
+	}
 }

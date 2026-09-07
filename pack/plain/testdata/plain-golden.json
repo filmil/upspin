@@ -1,0 +1,10 @@
+{
+  "blockPackdata": "",
+  "blockSize": 59,
+  "ciphertext": "676f6c64656e20706c61696e207061636b64617461207772697474656e2062792074686520636f64652061742074686520666f726b20706f696e74",
+  "name": "joe@upspin.io/golden/file.txt",
+  "packdata": "40ff32f61cf2a4ef57b9664c8896ecaf36fce157f768445823abb9059d38bd68b44085713fd0123b2dc6be787d29f7bed3a98c78b726d9dae4e5f04de83ae21ff0810000",
+  "text": "golden plain packdata written by the code at the fork point",
+  "time": 1725700000,
+  "writer": "joe@upspin.io"
+}

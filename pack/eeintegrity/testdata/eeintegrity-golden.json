@@ -1,0 +1,10 @@
+{
+  "blockPackdata": "0f5f9da3b92c59c2aced7782fda6bc95ec92c05346fc6337b24ea019c3a990c4",
+  "blockSize": 65,
+  "ciphertext": "676f6c64656e206565696e74656772697479207061636b64617461207772697474656e2062792074686520636f64652061742074686520666f726b20706f696e74",
+  "name": "joe@upspin.io/golden/file.txt",
+  "packdata": "407044a4d5ff37527f93daaddb45e5d202aecdd8d7a960e1f92e7346f94e6161bd405845d03b230402cd2a620026595d87b6dd3c4092fe30025e2e66892e1139698d0000404efed12bcb10f05531bf596bf4edea7c7e0a5a6f35880aa371dbd535a4f63870",
+  "text": "golden eeintegrity packdata written by the code at the fork point",
+  "time": 1725700000,
+  "writer": "joe@upspin.io"
+}
