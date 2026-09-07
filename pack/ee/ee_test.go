@@ -1329,3 +1329,76 @@ const (
 	sizeEEPQP256 = 1353
 	sizeEEPQP521 = 1973
 )
+
+// TestConfusionOperations extends TestConfusion to Share and Countersign:
+// the wrong key, the wrong packing and a factotum that cannot unwrap must
+// each end in a named error kind, or for Share, whose signature has no
+// error, in a nil packdata, never in a wrong result or a panic.
+func TestConfusionOperations(t *testing.T) {
+	type user struct {
+		name, other, rotated upspin.UserName
+		packing              upspin.Packing
+	}
+	for _, u := range []user{{"joe@upspin.io", "bob@upspin.io", "joe2", upspin.EEPack}, {pqJoe, pqBob, "pqjoe2", upspin.EEPQPack}} {
+		cfg, packer := setupPacking(u.name, u.packing)
+		otherCfg, _ := setupPacking(u.other, u.packing)
+		self := cfg.Factotum().PublicKey()
+		f2, err := factotum.NewFromDir(testutil.Repo("key", "testdata", string(u.rotated)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		name := upspin.PathName(u.name + "/confusion/ops")
+		d := &upspin.DirEntry{Name: name, SignedName: name, Writer: u.name, Time: 1725700000}
+		packBlob(t, cfg, packer, d, []byte("ops"))
+		fresh := func() *upspin.DirEntry {
+			e := *d
+			e.Packdata = append([]byte(nil), d.Packdata...)
+			return &e
+		}
+
+		// Countersign with the wrong old key: no wrap for it.
+		if err := packer.Countersign(otherCfg.Factotum().PublicKey(), f2, fresh()); !errors.Is(errors.NotExist, err) {
+			t.Errorf("%s: Countersign with the wrong old key: got %v, want NotExist", u.packing, err)
+		}
+		// Countersign with a factotum that does not hold the old key.
+		if err := packer.Countersign(self, otherCfg.Factotum(), fresh()); !errors.Is(errors.CannotDecrypt, err) {
+			t.Errorf("%s: Countersign with a factotum lacking the old key: got %v, want CannotDecrypt", u.packing, err)
+		}
+		// Name and SetTime by a user with no wrap.
+		if err := packer.Name(otherCfg, fresh(), name+".x"); !errors.Is(errors.NotExist, err) {
+			t.Errorf("%s: Name by a user with no wrap: got %v, want NotExist", u.packing, err)
+		}
+		if err := packer.SetTime(otherCfg, fresh(), 1); !errors.Is(errors.NotExist, err) {
+			t.Errorf("%s: SetTime by a user with no wrap: got %v, want NotExist", u.packing, err)
+		}
+		// Countersign on an entry of the other packing.
+		wrong := fresh()
+		wrong.Packing = upspin.EEPack + upspin.EEPQPack - u.packing
+		wrongPacker := pack.Lookup(wrong.Packing)
+		if err := wrongPacker.Countersign(self, f2, wrong); err == nil {
+			t.Errorf("%s: Countersign by the %s packer accepted the packdata", u.packing, wrongPacker)
+		}
+
+		// Share: a packdata of the other packing is skipped (nil), as is
+		// one the factotum cannot unwrap, and a good one is rewrapped.
+		pds := []*[]byte{&fresh().Packdata}
+		wrongPacker.Share(cfg, []upspin.PublicKey{self}, pds)
+		if pds[0] != nil {
+			t.Errorf("%s: Share by the %s packer did not skip the packdata", u.packing, wrongPacker)
+		}
+		pds = []*[]byte{&fresh().Packdata}
+		packer.Share(otherCfg, []upspin.PublicKey{self}, pds)
+		if pds[0] != nil {
+			t.Errorf("%s: Share by a user who cannot unwrap did not skip the packdata", u.packing)
+		}
+		good := fresh()
+		pds = []*[]byte{&good.Packdata}
+		packer.Share(cfg, []upspin.PublicKey{self, otherCfg.Factotum().PublicKey()}, pds)
+		if pds[0] == nil {
+			t.Fatalf("%s: Share by the owner skipped the packdata", u.packing)
+		}
+		if hashes, _ := packer.ReaderHashes(good.Packdata); len(hashes) != 2 {
+			t.Errorf("%s: Share by the owner left %d readers, want 2", u.packing, len(hashes))
+		}
+	}
+}

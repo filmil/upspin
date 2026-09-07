@@ -43,13 +43,7 @@ The nightly fuzz job is the only asynchronous input.
 5. **Golden wire format for ee and eepq.** Landed in PR #77.
 6. **Combiner known answer vectors.** Landed in PR #78.
 7. **Tamper matrix.** Landed in PR #82.
-8. **Key and packing confusion.**
-   `TestConfusion`, `TestCrossKeyPQ` and `TestUnpackWithoutDecapsulator`
-   cover the wrong reader, eepq packdata as ee and the reverse, an
-   ephemeral point on the wrong curve, a wrong-size ML-KEM ciphertext and
-   a Factotum without `Decapsulator`.
-   Still to do: the same cases for `Share`, `Countersign` and the
-   `secret2.upspinkey` archive parser, with a named error kind for each.
+8. **Key and packing confusion.** Landed in PR #83.
 9. **Allocation bound.** Landed in PR #74.
 
 ### Fuzz and race
