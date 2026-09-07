@@ -80,6 +80,20 @@ type Decapsulator interface {
 
 var _ Decapsulator = factotum{}
 
+// Size limits on key material, checked before any parsing so that a
+// hostile keyserver record or key file costs no more than a length check.
+// The largest legitimate values are a p521+mlkem1024 public key of about
+// 2.4 KB, its private key of about 350 bytes, and an archive of one such
+// pair per rotation, about 2.8 KB each.
+const (
+	// MaxPublicKeyLen bounds the string form of a public key.
+	MaxPublicKeyLen = 4 * 1024
+	// MaxPrivateKeyLen bounds the contents of secret.upspinkey.
+	MaxPrivateKeyLen = 1024
+	// MaxArchiveLen bounds the contents of secret2.upspinkey.
+	MaxArchiveLen = 1024 * 1024
+)
+
 type factotumKey struct {
 	keyHash      []byte
 	public       upspin.PublicKey
@@ -150,6 +164,12 @@ func NewFromKeys(public, private, archived []byte) (upspin.Factotum, error) {
 
 // newFactotum creates a new Factotum using the given keys.
 func newFactotum(op errors.Op, public, private, archived []byte) (upspin.Factotum, error) {
+	if len(private) > MaxPrivateKeyLen {
+		return nil, errors.E(op, errors.Invalid, errors.Errorf("private key of %d bytes exceeds %d", len(private), MaxPrivateKeyLen))
+	}
+	if len(archived) > MaxArchiveLen {
+		return nil, errors.E(op, errors.Invalid, errors.Errorf("key archive of %d bytes exceeds %d", len(archived), MaxArchiveLen))
+	}
 	pfk, err := makeKey(upspin.PublicKey(public), string(private))
 	if err != nil {
 		return nil, errors.E(op, err)
@@ -561,6 +581,9 @@ func NewDecapsulationKey(kem KEM, seed []byte) (crypto.Decapsulator, error) {
 // returns only the ECDSA part. See ParseEncapsulationKey for the KEM part.
 func ParsePublicKey(public upspin.PublicKey) (*ecdsa.PublicKey, error) {
 	const op errors.Op = "factotum.ParsePublicKey"
+	if len(public) > MaxPublicKeyLen {
+		return nil, errors.E(op, errors.Invalid, errors.Errorf("public key of %d bytes exceeds %d", len(public), MaxPublicKeyLen))
+	}
 	fields := strings.Split(string(public), "\n")
 	if len(fields) < 1 {
 		return nil, errors.E(op, errors.Invalid, "empty key")

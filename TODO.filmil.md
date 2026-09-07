@@ -65,11 +65,7 @@ The nightly fuzz job is the only asynchronous input.
    a Factotum without `Decapsulator`.
    Still to do: the same cases for `Share`, `Countersign` and the
    `secret2.upspinkey` archive parser, with a named error kind for each.
-9. **Allocation bound.**
-   `TestUnmarshalAllocation` asserts that `packdata.Unmarshal` allocates
-   less than 64 times its hostile input.
-   Still to do: the same bound for `factotum.ParsePublicKey`, the private
-   key parser and the archive parser.
+9. **Allocation bound.** Landed in PR #74.
 
 ### Fuzz and race
 
@@ -125,11 +121,7 @@ The nightly fuzz job is the only asynchronous input.
     Add a `plain` and an `eeintegrity` golden entry generated with the
     `origin/main` code, as `pack/ee/testdata/ee-golden.json` was.
 19. **Wire `-race`, `govulncheck` and `gitleaks` into `bazel.yml`.**
-    Items 1 to 3 and 12 describe the full stages; the minimum is two
-    lines each in the existing workflow, since the tree now holds eight
-    private keys under `testdata`.
-    PR #59 did not change `bazel.yml`; the fourth review noted that a
-    TODO entry is not the same as the wiring.
+    Landed in PRs #62, #63 and #64.
 
 ### From the fourth review
 
