@@ -87,55 +87,36 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           release_branches: main
-      - name: Create a GitHub release
-        uses: ncipollo/release-action@v1
-        with:
-          tag: ${{ steps.tag_version.outputs.new_tag }}
-          generateReleaseNotes: true
-      - name: Get release tag
-        id: get_version
-        run: echo "VERSION=${{ steps.tag_version.outputs.new_tag }}" >> $GITHUB_ENV
-      - name: Get repo name
-        id: get_repo_name
-        run: echo "REPO_NAME=$(echo '${{ github.repository }}' | awk -F '/' '{print $2}')" >> $GITHUB_ENV
-      - name: "Publish source archive (zip)"
-        uses: thedoctor0/zip-release@0.7.5
-        with:
-          type: 'zip'
-          filename: "${{ env.REPO_NAME }}-${{ env.VERSION }}.zip"
-          exclusions: '*.git* /*node_modules/* .editorconfig /bazel-*'
-      - name: "Publish source archive (tar.gz)"
-        run: |
-          VERSION_STR="${{ env.VERSION }}"
-          PREFIX="${{ env.REPO_NAME }}-${VERSION_STR#v}/"
-          git archive --format=tar.gz --prefix="$PREFIX" -o "${{ env.VERSION }}.tar.gz" HEAD
-      - name: Generate artifact attestation for source archive (zip)
-        id: attest_zip
-        uses: actions/attest-build-provenance@v2
-        with:
-          subject-path: "${{ env.REPO_NAME }}-${{ env.VERSION }}.zip"
-      - name: Extract zip attestation into intoto.jsonl
-        run: |
-          cat ${{ steps.attest_zip.outputs.bundle-path }} | jq --compact-output > "${{ env.REPO_NAME }}-${{ env.VERSION }}.zip.intoto.jsonl"
-      - name: Generate artifact attestation for source archive (tar.gz)
-        id: attest_tar
-        uses: actions/attest-build-provenance@v2
-        with:
-          subject-path: "${{ env.VERSION }}.tar.gz"
-      - name: Extract tar.gz attestation into intoto.jsonl
-        run: |
-          cat ${{ steps.attest_tar.outputs.bundle-path }} | jq --compact-output > "${{ env.VERSION }}.tar.gz.intoto.jsonl"
-      - name: "Upload source archives"
-        uses: ncipollo/release-action@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag: ${{ steps.tag_version.outputs.new_tag }}
-          allowUpdates: true
-          artifacts: "${{ env.REPO_NAME }}-${{ env.VERSION }}.zip,${{ env.REPO_NAME }}-${{ env.VERSION }}.zip.intoto.jsonl,${{ env.VERSION }}.tar.gz,${{ env.VERSION }}.tar.gz.intoto.jsonl"
+
+  # Runs the tests, builds the source archives through
+  # .github/workflows/release_prep.sh, attests them with
+  # actions/attest-build-provenance, and creates the GitHub release.
+  #
+  # This reusable workflow is not interchangeable with the local
+  # attest-build-provenance steps it replaces. The Bazel Central Registry
+  # verifies a source archive attestation with slsa-verifier against a
+  # hard-coded builder id, set in tools/slsa.py of
+  # bazelbuild/bazel-central-registry, and that id names release_ruleset.yaml.
+  # The attestation this repository produced before named
+  # filmil/upspin/.github/workflows/tag-and-release.yml, which BCR rejects.
+  source_release:
+    needs: tag
+    if: ${{ needs.tag.outputs.tag_name != '' }}
+    permissions:
+      contents: write      # upload release files
+      id-token: write      # attest provenance
+      attestations: write  # attest provenance
+    uses: bazel-contrib/.github/.github/workflows/release_ruleset.yaml@v7.7.0
+    with:
+      tag_name: ${{ needs.tag.outputs.tag_name }}
+      release_files: |
+        ${{ needs.tag.outputs.tag_name }}.tar.gz
+        upspin-${{ needs.tag.outputs.tag_name }}.zip
+      prerelease: false
+      bazel_test_command: "bazel test --test_output=errors //..."
 
   release:
-    needs: tag
+    needs: [tag, source_release]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -172,13 +153,6 @@ jobs:
           FILES=$(bazel cquery "set($TARGETS)" --platforms=@rules_go//go/toolchain:${{ matrix.os }}_${{ matrix.arch }} --output=files 2>/dev/null | grep bazel-out)
           cp $FILES release-binaries/
           zip -j -r upspin-binaries-${{ matrix.os }}-${{ matrix.arch }}.zip release-binaries/
-      - name: Find version tag
-        id: tag_version
-        uses: mathieudutour/github-tag-action@v6.2
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          release_branches: main
-          dry_run: true
       - name: Generate artifact attestation for compiled binaries
         id: attest_bin
         uses: actions/attest-build-provenance@v2
@@ -194,10 +168,10 @@ jobs:
         with:
           allowUpdates: true
           artifacts: "upspin-binaries-${{ matrix.os }}-${{ matrix.arch }}.zip,upspin-binaries-${{ matrix.os }}-${{ matrix.arch }}.zip.intoto.jsonl"
-          tag: ${{ steps.tag_version.outputs.previous_tag }}
+          tag: ${{ needs.tag.outputs.tag_name }}
 
   publish-my-registry:
-    needs: tag
+    needs: [tag, source_release]
     uses: ./.github/workflows/publish.yml
     with:
       tag_name: ${{ needs.tag.outputs.tag_name }}
@@ -213,3 +187,17 @@ jobs:
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
 
+
+  # BCR is the only publish that attests, see the note in publish.yml. This job
+  # runs after that one rather than beside it, so that the order in which the
+  # two registries see a release stays fixed, and so that turning `attest` back
+  # on in publish.yml cannot silently produce two attesting publishes racing to
+  # overwrite the same two release assets.
+  publish-bcr:
+    needs: [tag, publish-my-registry]
+    if: ${{ needs.tag.outputs.tag_name != '' }}
+    uses: ./.github/workflows/publish-bcr.yml
+    with:
+      tag_name: ${{ needs.tag.outputs.tag_name }}
+    secrets:
+      BCR_PUBLISH_TOKEN: ${{ secrets.BCR_PUBLISH_TOKEN }}
