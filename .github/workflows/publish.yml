@@ -19,12 +19,23 @@ on:
 
 jobs:
   publish:
-    uses: "bazel-contrib/publish-to-bcr/.github/workflows/publish.yaml@v1.2.0"
+    uses: "bazel-contrib/publish-to-bcr/.github/workflows/publish.yaml@v1.5.0"
     with:
       tag_name: ${{ inputs.tag_name }}
       registry: filmil/bazel-registry
       registry_fork: filmil/bazel-registry
-      attest: true
+      # Only one publish workflow may attest, and it is the BCR one.
+      #
+      # Every publish-to-bcr run with `attest: true` uploads
+      # MODULE.bazel.intoto.jsonl and source.json.intoto.jsonl to the release
+      # under those fixed names, and records the hash of the file it uploaded
+      # in the attestations.json of the registry it writes. Two attesting
+      # publishes therefore overwrite each other, and whichever ran first is
+      # left naming hashes the release no longer serves.
+      #
+      # BCR verifies attestations at presubmit and this registry does not, so
+      # BCR keeps them. Entries here simply have no attestations.json.
+      attest: false
       draft: false
     permissions:
       contents: write
