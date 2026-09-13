@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("\u05fa\u05fa\u05fa\u05fa\u05fa\u05fa\u05fa\u05fa")

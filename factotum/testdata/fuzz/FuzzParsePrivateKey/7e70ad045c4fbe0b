@@ -1,0 +1,3 @@
+go test fuzz v1
+[]byte("\ue7f8\uf617\uf0b9\uf09d")
+[]byte("0")
