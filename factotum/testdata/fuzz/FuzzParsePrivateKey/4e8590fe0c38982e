@@ -1,0 +1,3 @@
+go test fuzz v1
+[]byte("\xee\xee\xee\xdc\xee\xee\xee\xee\xee0")
+[]byte("0")

@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("痆܌蕋ϡ°Ͽɝ\x7fܢ\x7f\x7f㓩ք\x7fн؏Ǥߥߐ⼽ط\x7fƖ⫊˭ݣƂ̐\xf4\x81\xd6ᜧ֓ր݇ùҦ\x7fЉ\xef\x97Ɛռ\x7f\x7fďΆ")

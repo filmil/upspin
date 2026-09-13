@@ -1,0 +1,3 @@
+go test fuzz v1
+[]byte("p256\n0\n0\n")
+[]byte("0#\n0\xc0\n\xc00\xb5\x93\xbb\n\xa6#0")
