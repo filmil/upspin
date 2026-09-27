@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("酶酶\ue063獐酶獐酶\ue063\ue89e獐酶\ue063獐酶獐酶\ue063\ue89e獐酶\ue89e獐酶\ue063")
