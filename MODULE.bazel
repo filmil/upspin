@@ -1,6 +1,7 @@
 module(
     name = "upspin",
     version = "42.1.6",
+    bazel_compatibility = [">=8.0.0"],
 )
 
 bazel_dep(name = "rules_go", version = "0.61.1")
