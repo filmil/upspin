@@ -1,0 +1,21 @@
+# SPDX-License-Identifier: Apache-2.0
+
+load("@rules_go//go:def.bzl", "go_test")
+
+# A consumer of upspin: it imports the public packages by their upspin.io
+# import paths, generates a key pair, and encrypts and decrypts a block.
+go_test(
+    name = "consumer_test",
+    srcs = ["consumer_test.go"],
+    deps = [
+        "@upspin//bind",
+        "@upspin//config",
+        "@upspin//factotum",
+        "@upspin//key/inprocess",
+        "@upspin//key/keygen",
+        "@upspin//pack",
+        "@upspin//pack/ee",
+        "@upspin//path",
+        "@upspin//upspin",
+    ],
+)
