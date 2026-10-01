@@ -41,6 +41,56 @@ jobs:
 
 
 
+  # BCR publication: every dependency must resolve from the Bazel Central
+  # Registry alone. .bazelrc lists a custom registry first, which would hide
+  # a dependency that BCR does not have, so the rc files are skipped here.
+  bcr_dependencies:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Bazel
+        uses: bazel-contrib/setup-bazel@0.19.0
+        with:
+          bazelisk-cache: true
+          repository-cache: true
+
+      - name: Resolve the module graph from BCR alone
+        run: bazel --ignore_all_rc_files mod graph --registry=https://bcr.bazel.build
+
+  # The integration module uses upspin as a dependency, as BCR presubmit
+  # does (.bcr/presubmit.yml). This mirrors that presubmit's matrix as far
+  # as GitHub runners allow: Linux and macOS, Bazel 8 and 9.
+  integration:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        bazel: ["8.x", "9.x"]
+    runs-on: ${{ matrix.os }}
+    env:
+      USE_BAZEL_VERSION: ${{ matrix.bazel }}
+    defaults:
+      run:
+        working-directory: integration
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Bazel
+        uses: bazel-contrib/setup-bazel@0.19.0
+        with:
+          bazelisk-cache: true
+          disk-cache: ${{ github.job }}-${{ matrix.os }}-${{ matrix.bazel }}
+          repository-cache: true
+
+      - name: Build the upspin binaries
+        run: bazel build --registry=https://bcr.bazel.build @upspin//cmd/upspin @upspin//cmd/upspinserver @upspin//cmd/upspinfs
+
+      - name: Test the integration module
+        run: bazel test --registry=https://bcr.bazel.build --test_output=errors //...
+
   # The race detector on the packages that share state across goroutines:
   # the packer registry and packers, the factotum, and the client. Kept
   # to those packages so the job stays a few minutes long.
