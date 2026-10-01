@@ -71,3 +71,23 @@ before anyone rotates to such a key.
 See [doc/security.filmil.md](doc/security.filmil.md) for the scheme and
 the key file formats, and [doc/config.filmil.md](doc/config.filmil.md)
 for the settings.
+
+## Checks for Bazel Central Registry publication
+
+The module is published to the Bazel Central Registry (BCR), and these
+checks keep a release publishable.
+
+* `integration/` is a separate Bazel module that depends on upspin, as an
+  outside user would.
+  Its test generates a key pair, then encrypts and decrypts a block with
+  the `ee` packing; it reads no files.
+  BCR presubmit runs it as the test module, on Debian 11, Ubuntu 22.04
+  and 24.04, and macOS on x86-64 and arm64, with Bazel 8 and 9.
+  Run it locally with
+  `cd integration && bazel test --registry=https://bcr.bazel.build //...`.
+* The upspin packages' own tests read their fixtures from the source tree,
+  so they run only where upspin is the main module, not in BCR presubmit.
+* CI resolves the module graph from BCR alone, ignoring `.bazelrc` and its
+  custom registry, so a dependency that BCR does not have fails the build.
+* CI runs the integration module on Linux and macOS with Bazel 8 and 9.
+* `MODULE.bazel` declares `bazel_compatibility = [">=8.0.0"]`.
