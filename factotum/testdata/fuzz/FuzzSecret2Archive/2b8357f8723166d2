@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("# EE\np256\n0\n0\n\xeb\x95Ԥƙĕĳ͍\xec\xafȒſߔُ\xe4\xaa\xea\x8fް")
