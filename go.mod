@@ -1,6 +1,6 @@
 module upspin.io
 
-go 1.26.6
+go 1.26.9
 
 require (
 	github.com/NYTimes/gziphandler v1.1.1
@@ -8,14 +8,14 @@ require (
 	github.com/microcosm-cc/bluemonday v1.0.27
 	github.com/presotto/fuse v0.0.0-20220404205012-944bbcc73d97
 	github.com/russross/blackfriday v1.6.0
-	golang.org/x/crypto v0.56.0
-	golang.org/x/net v0.58.0
-	golang.org/x/text v0.41.0
-	google.golang.org/protobuf v1.36.10
+	golang.org/x/crypto v0.57.0
+	golang.org/x/net v0.60.0
+	golang.org/x/text v0.42.0
 	gopkg.in/yaml.v2 v2.4.0
 )
 
 require (
 	github.com/aymerick/douceur v0.2.0 // indirect
 	github.com/gorilla/css v1.0.1 // indirect
+	google.golang.org/protobuf v1.36.10 // indirect
 )
