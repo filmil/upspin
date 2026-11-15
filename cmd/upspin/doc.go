@@ -375,21 +375,30 @@ Usage: upspin listrefs [-r] path...
 
 Listrefs prints the storage reference of every block of each regular file
 named, one block per line: the reference, the store endpoint and the path
-name, separated by tabs. Links are not followed, and directories are
-descended only with -r.
+name, separated by tabs. A link named on the command line or found in a
+tree is skipped, since it has no blocks of its own; links in the middle of
+a path name are followed. Directories are descended only with -r. A file
+whose blocks the user cannot see (no read access) is an error.
 
-Its purpose is to record the blocks of files before repack rewrites them,
-because repack leaves the old blocks in the store. Once the repacked files
-are checked, the saved references can be given to deletestorage:
+Its purpose is to find the blocks that repack leaves behind. Repack writes
+new blocks and does not delete the old ones; deletestorage does. Record
+the references before and after repack, and delete only those that are
+gone afterwards. Files that repack does not rewrite, such as Access and
+Group files and files already in the requested packing, keep their blocks,
+which then appear in both lists and must not be deleted:
 
-	upspin listrefs -r me@example.com/ > refs.txt
+	upspin listrefs -r me@example.com/ | cut -f1,2 | sort -u > before.txt
 	upspin repack -pack eepq -r me@example.com/
-	cut -f1 refs.txt | xargs upspin deletestorage -ref
+	upspin listrefs -r me@example.com/ | cut -f1,2 | sort -u > after.txt
+	comm -23 before.txt after.txt > gone.txt
 
-Deletestorage assumes that each reference is on the user's own store; the
-second column shows when that is not so. Read deletestorage -help first:
-a block that another path name or a snapshot still refers to must not be
-deleted.
+Deletestorage -ref assumes the user's own store, so keep only the lines
+of gone.txt whose second field is that store, then pass the first field:
+
+	cut -f1 gone.txt | xargs -r upspin deletestorage -ref
+
+Read deletestorage -help first: a block that another user's tree or a
+snapshot still refers to must not be deleted.
 
 Flags:
   -help
