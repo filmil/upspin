@@ -25,8 +25,10 @@ oci.pull(
 use_repo(oci, "distroless_static", "distroless_static_linux_amd64", "distroless_static_linux_arm64_v8")
 
 go_sdk = use_extension("@rules_go//go:extensions.bzl", "go_sdk", dev_dependency = True)
-# The Go version comes from go.mod, the one place that names it, so the
-# Bazel build and govulncheck (which reads go.mod) always use the same Go.
+# The Go version comes from go.mod, the one place that names it. The
+# govulncheck CI job installs Go with actions/setup-go and
+# go-version-file: go.mod, so the Bazel build and govulncheck use the same
+# Go. Bump the version in go.mod only.
 go_sdk.from_file(go_mod = "//:go.mod")
 
 go_deps = use_extension("@gazelle//:extensions.bzl", "go_deps")
