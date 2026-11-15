@@ -84,6 +84,7 @@ var commands = map[string]func(*State, ...string){
 	"get":                (*State).get,
 	"getref":             (*State).getref,
 	"info":               (*State).info,
+	"listrefs":           (*State).listrefs,
 	"keygen":             (*State).keygen,
 	"link":               (*State).link,
 	"ls":                 (*State).ls,

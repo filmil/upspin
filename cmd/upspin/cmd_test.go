@@ -27,6 +27,7 @@ var allCmdTests = []*[]cmdTest{
 	&shareTests,
 	&suffixedUserTests,
 	&largeFileTests,
+	&listrefsTests,
 }
 
 // TestCommands runs the tests defined in cmdTests as subtests.

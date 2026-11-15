@@ -58,6 +58,7 @@ Upspin commands:
 	info
 	keygen
 	link
+	listrefs
 	ls
 	mkdir
 	put
@@ -365,6 +366,35 @@ Flags:
   -f	force creation of link when original path is inaccessible
   -help
     	print more information about the command
+
+
+
+Sub-command listrefs
+
+Usage: upspin listrefs [-r] path...
+
+Listrefs prints the storage reference of every block of each regular file
+named, one block per line: the reference, the store endpoint and the path
+name, separated by tabs. Links are not followed, and directories are
+descended only with -r.
+
+Its purpose is to record the blocks of files before repack rewrites them,
+because repack leaves the old blocks in the store. Once the repacked files
+are checked, the saved references can be given to deletestorage:
+
+	upspin listrefs -r me@example.com/ > refs.txt
+	upspin repack -pack eepq -r me@example.com/
+	cut -f1 refs.txt | xargs upspin deletestorage -ref
+
+Deletestorage assumes that each reference is on the user's own store; the
+second column shows when that is not so. Read deletestorage -help first:
+a block that another path name or a snapshot still refers to must not be
+deleted.
+
+Flags:
+  -help
+    	print more information about the command
+  -r	recur into subdirectories
 
 
 
