@@ -7,7 +7,8 @@ title = "upspin gitleaks config"
 useDefault = true
 
 # One [allowlist] table, not [[allowlists]]: the gitleaks action runs
-# gitleaks 8.24.3, which reads only the singular table and silently
+# gitleaks 8.24.3 (pinned in .github/workflows/bazel.yml), which reads
+# only the singular table and silently
 # ignores [[allowlists]] (added in 8.25). With the plural form the
 # allowlist did nothing, and the weekly full-history scan failed on these
 # fixtures. A finding is allowed when its path or its secret matches
