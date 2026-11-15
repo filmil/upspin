@@ -1,4 +1,4 @@
-load("@rules_go//go:def.bzl", "go_library")
+load("@rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
     name = "https",
@@ -14,4 +14,12 @@ go_library(
         "//shutdown",
         "@org_golang_x_crypto//acme/autocert",
     ],
+)
+
+go_test(
+    name = "https_test",
+    size = "small",
+    srcs = ["https_test.go"],
+    data = ["//rpc/testdata:rpc_testdata"],
+    embed = [":https"],
 )

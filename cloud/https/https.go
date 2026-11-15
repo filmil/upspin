@@ -311,8 +311,12 @@ func newDefaultTLSConfig(certFile string, certKeyFile string) (*tls.Config, erro
 		},
 		MinVersion:               tls.VersionTLS12,
 		PreferServerCipherSuites: true, // Use our choice, not the client's choice
-		CurvePreferences:         []tls.CurveID{tls.CurveP521, tls.CurveP384, tls.CurveP256, tls.X25519},
-		Certificates:             []tls.Certificate{cert},
+		// X25519MLKEM768 first: a hybrid of X25519 and ML-KEM-768 (FIPS
+		// 203), so a session key recorded today cannot be recovered later
+		// by breaking elliptic curves alone. Clients without it fall back
+		// to the classic curves.
+		CurvePreferences: []tls.CurveID{tls.X25519MLKEM768, tls.CurveP521, tls.CurveP384, tls.CurveP256, tls.X25519},
+		Certificates:     []tls.Certificate{cert},
 	}
 	tlsConfig.BuildNameToCertificate()
 	return tlsConfig, nil
