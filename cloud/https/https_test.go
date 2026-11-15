@@ -41,6 +41,9 @@ func handshake(t *testing.T, client *tls.Config) tls.ConnectionState {
 	}()
 	cc := tls.Client(c, client)
 	cerr := cc.Handshake()
+	if cerr != nil {
+		c.Close() // Unblock the server.
+	}
 	serr := <-done
 	s.Close()
 	if serr != nil {
@@ -54,12 +57,13 @@ func handshake(t *testing.T, client *tls.Config) tls.ConnectionState {
 
 func TestKeyExchange(t *testing.T) {
 	for _, tc := range []struct {
-		name   string
-		client *tls.Config
-		want   tls.CurveID
+		name    string
+		client  *tls.Config
+		want    tls.CurveID
+		version uint16 // 0 means TLS 1.3.
 	}{{
-		// The client offers the hybrid explicitly, so the test does not
-		// depend on GODEBUG.
+		// The client offers the hybrid explicitly. The server side follows
+		// Go's defaults, so GODEBUG=tlsmlkem=0 would turn it off there.
 		name:   "hybrid",
 		client: &tls.Config{CurvePreferences: []tls.CurveID{tls.X25519MLKEM768, tls.X25519}},
 		want:   tls.X25519MLKEM768,
@@ -73,15 +77,23 @@ func TestKeyExchange(t *testing.T) {
 		want:   tls.CurveP256,
 	}, {
 		// The hybrid is TLS 1.3 only.
-		name:   "TLS 1.2",
-		client: &tls.Config{MaxVersion: tls.VersionTLS12},
-		want:   tls.X25519,
+		name:    "TLS 1.2",
+		client:  &tls.Config{MaxVersion: tls.VersionTLS12},
+		want:    tls.X25519,
+		version: tls.VersionTLS12,
 	}} {
 		t.Run(tc.name, func(t *testing.T) {
 			tc.client.InsecureSkipVerify = true
 			cs := handshake(t, tc.client)
 			if cs.CurveID != tc.want {
 				t.Errorf("key exchange = %v, want %v", cs.CurveID, tc.want)
+			}
+			want := tc.version
+			if want == 0 {
+				want = tls.VersionTLS13
+			}
+			if cs.Version != want {
+				t.Errorf("version = %x, want %x", cs.Version, want)
 			}
 		})
 	}
