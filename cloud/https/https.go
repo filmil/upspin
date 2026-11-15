@@ -311,12 +311,12 @@ func newDefaultTLSConfig(certFile string, certKeyFile string) (*tls.Config, erro
 		},
 		MinVersion:               tls.VersionTLS12,
 		PreferServerCipherSuites: true, // Use our choice, not the client's choice
-		// X25519MLKEM768 first: a hybrid of X25519 and ML-KEM-768 (FIPS
-		// 203), so a session key recorded today cannot be recovered later
-		// by breaking elliptic curves alone. Clients without it fall back
-		// to the classic curves.
-		CurvePreferences: []tls.CurveID{tls.X25519MLKEM768, tls.CurveP521, tls.CurveP384, tls.CurveP256, tls.X25519},
-		Certificates:     []tls.Certificate{cert},
+		// CurvePreferences is left unset, so Go's defaults apply: the
+		// post-quantum hybrid X25519MLKEM768 first (TLS 1.3 only), then
+		// X25519, P-256 and P-384, as on the autocert path. A pinned list
+		// left the hybrid out before, and would miss future defaults.
+		// TLS 1.2 clients still get a classic key exchange.
+		Certificates: []tls.Certificate{cert},
 	}
 	tlsConfig.BuildNameToCertificate()
 	return tlsConfig, nil

@@ -8,6 +8,7 @@ import (
 	"crypto/tls"
 	"net"
 	"testing"
+	"time"
 )
 
 const (
@@ -25,33 +26,63 @@ func handshake(t *testing.T, client *tls.Config) tls.ConnectionState {
 	}
 	c, s := net.Pipe()
 	defer c.Close()
-	defer s.Close()
+	// A deadline, so that a failed handshake on one side cannot leave the
+	// other blocked on the unbuffered pipe.
+	deadline := time.Now().Add(10 * time.Second)
+	c.SetDeadline(deadline)
+	s.SetDeadline(deadline)
 	done := make(chan error, 1)
-	go func() { done <- tls.Server(s, server).Handshake() }()
+	go func() {
+		err := tls.Server(s, server).Handshake()
+		if err != nil {
+			s.Close() // Unblock the client.
+		}
+		done <- err
+	}()
 	cc := tls.Client(c, client)
-	if err := cc.Handshake(); err != nil {
-		t.Fatalf("client handshake: %v", err)
+	cerr := cc.Handshake()
+	serr := <-done
+	s.Close()
+	if serr != nil {
+		t.Fatalf("server handshake: %v", serr)
 	}
-	if err := <-done; err != nil {
-		t.Fatalf("server handshake: %v", err)
+	if cerr != nil {
+		t.Fatalf("client handshake: %v", cerr)
 	}
 	return cc.ConnectionState()
 }
 
-// TestHybridKeyExchange checks that a client that offers the post-quantum
-// hybrid (Go's default since 1.24) gets it.
-func TestHybridKeyExchange(t *testing.T) {
-	cs := handshake(t, &tls.Config{InsecureSkipVerify: true})
-	if cs.CurveID != tls.X25519MLKEM768 {
-		t.Errorf("key exchange = %v, want %v", cs.CurveID, tls.X25519MLKEM768)
-	}
-}
-
-// TestClassicFallback checks that a client without the hybrid still
-// connects, with a classic curve.
-func TestClassicFallback(t *testing.T) {
-	cs := handshake(t, &tls.Config{InsecureSkipVerify: true, CurvePreferences: []tls.CurveID{tls.CurveP256}})
-	if cs.CurveID != tls.CurveP256 {
-		t.Errorf("key exchange = %v, want %v", cs.CurveID, tls.CurveP256)
+func TestKeyExchange(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		client *tls.Config
+		want   tls.CurveID
+	}{{
+		// The client offers the hybrid explicitly, so the test does not
+		// depend on GODEBUG.
+		name:   "hybrid",
+		client: &tls.Config{CurvePreferences: []tls.CurveID{tls.X25519MLKEM768, tls.X25519}},
+		want:   tls.X25519MLKEM768,
+	}, {
+		name:   "classic client prefers X25519",
+		client: &tls.Config{CurvePreferences: []tls.CurveID{tls.X25519, tls.CurveP256, tls.CurveP384}},
+		want:   tls.X25519,
+	}, {
+		name:   "P-256 only",
+		client: &tls.Config{CurvePreferences: []tls.CurveID{tls.CurveP256}},
+		want:   tls.CurveP256,
+	}, {
+		// The hybrid is TLS 1.3 only.
+		name:   "TLS 1.2",
+		client: &tls.Config{MaxVersion: tls.VersionTLS12},
+		want:   tls.X25519,
+	}} {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.client.InsecureSkipVerify = true
+			cs := handshake(t, tc.client)
+			if cs.CurveID != tc.want {
+				t.Errorf("key exchange = %v, want %v", cs.CurveID, tc.want)
+			}
+		})
 	}
 }
