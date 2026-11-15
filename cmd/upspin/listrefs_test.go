@@ -10,22 +10,46 @@ import (
 	"testing"
 )
 
-// listrefsLines checks that each line of stdout has three tab-separated
-// fields and returns the lines split into fields.
+// listrefsLines returns the leading lines of stdout that have the three
+// tab-separated fields of listrefs, split into fields. It stops at the
+// first other line, so output of a later command (info) is ignored.
 func listrefsLines(t *testing.T, cmd *cmdTest, stdout, stderr string) [][]string {
 	t.Helper()
 	if stderr != "" {
 		t.Fatalf("%q: unexpected error:\n\t%q", cmd.name, stderr)
 	}
 	var out [][]string
-	for _, line := range strings.Split(strings.TrimRight(stdout, "\n"), "\n") {
+	for _, line := range strings.Split(stdout, "\n") {
 		f := strings.Split(line, "\t")
 		if len(f) != 3 || f[0] == "" || f[1] == "" || f[2] == "" {
-			t.Fatalf("%q: bad line %q", cmd.name, line)
+			break
 		}
 		out = append(out, f)
 	}
 	return out
+}
+
+// listrefsMatchInfo is a post function for "listrefs path" followed by
+// "info path": every line of listrefs must name a block that info shows,
+// with the reference and the endpoint in their columns, and there must be
+// at least min of them.
+func listrefsMatchInfo(min int) func(t *testing.T, r *runner, cmd *cmdTest, stdout, stderr string) {
+	return func(t *testing.T, r *runner, cmd *cmdTest, stdout, stderr string) {
+		lines := listrefsLines(t, cmd, stdout, stderr)
+		if len(lines) < min {
+			t.Fatalf("%q: %d lines, want at least %d:\n%s", cmd.name, len(lines), min, stdout)
+		}
+		blocks := strings.Count(stdout, "{") // One per block row of info.
+		if len(lines) != blocks {
+			t.Fatalf("%q: %d lines, but info shows %d blocks:\n%s", cmd.name, len(lines), blocks, stdout)
+		}
+		for _, f := range lines {
+			// info prints a block's location as {endpoint reference}.
+			if loc := "{" + f[1] + " " + f[0] + "}"; !strings.Contains(stdout, loc) {
+				t.Fatalf("%q: %s not in info output:\n%s", cmd.name, loc, stdout)
+			}
+		}
+	}
 }
 
 var listrefsTests = []cmdTest{
@@ -74,13 +98,31 @@ var listrefsTests = []cmdTest{
 			"info @/refs/a",
 		),
 		"",
-		func(t *testing.T, r *runner, cmd *cmdTest, stdout, stderr string) {
-			first, rest, _ := strings.Cut(stdout, "\n")
-			f := listrefsLines(t, cmd, first, stderr)
-			if !strings.Contains(rest, f[0][0]) {
-				t.Fatalf("%q: reference %q not in info output:\n%s", cmd.name, f[0][0], rest)
-			}
-		},
+		listrefsMatchInfo(1),
+	},
+	{
+		"listrefs large file setup",
+		ann,
+		do("put @/refs/large"),
+		largeText,
+		expectNoOutput(),
+	},
+	{
+		"listrefs prints every block",
+		ann,
+		do(
+			"listrefs @/refs/large",
+			"info @/refs/large",
+		),
+		"",
+		listrefsMatchInfo(2),
+	},
+	{
+		"listrefs link named directly",
+		ann,
+		do("listrefs @/refs/link"),
+		"",
+		expectNoOutput(),
 	},
 	{
 		"listrefs directory without -r",
