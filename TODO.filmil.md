@@ -116,3 +116,53 @@ The nightly fuzz job is the only asynchronous input.
     code owner review in the branch protection settings.
     Cryptographic code must not merge without a human reader.
     An assistant fixing an assistant's review does not count as reviewed.
+
+## Feature requests
+
+30. **upspinfs: keep the mount alive when the server process dies.**
+    Today the mount point becomes defunct when upspinfs exits or
+    crashes: every access fails with `ENOTCONN` ("Transport endpoint is
+    not connected") until someone unmounts and starts upspinfs again.
+    A FUSE mount lives as long as some process holds its `/dev/fuse`
+    descriptor, and upspinfs holds its own, through `fuse.Mount` in
+    `cmd/upspinfs/fs.go`.
+    The mount should not share the fate of the process that serves it.
+
+    The approach, from the tutorial "Robust userspace file systems"
+    (filmil/tutorials, `robust-userspace-fs`, section "Surviving a
+    Server Restart"):
+    - A small supervisor opens the mount and keeps the descriptor.
+      It starts upspinfs, passes it the descriptor (an inherited file
+      descriptor, or `SCM_RIGHTS` over a Unix socket), and starts a new
+      upspinfs when the old one exits.
+      systemd's file descriptor store is an alternative to a supervisor.
+    - The new upspinfs adopts the descriptor and does not repeat `INIT`:
+      the kernel does not negotiate again, so it reuses the parameters
+      the first server negotiated.
+    - On kernels 6.9 and later it sends `FUSE_NOTIFY_RESEND`, so requests
+      that the dead server had read are answered instead of hanging.
+      On older kernels those requests are lost; Nydus answers them with
+      `EIO` instead.
+
+    Holding the descriptor is the easy part; it does not make a restart
+    work on its own. What upspinfs needs besides:
+    - **Stable node IDs.** `newNode` assigns IDs from a counter
+      (`f.lastID++`) and `nodeMap` lives in memory, so a new process
+      would not know the IDs the kernel still holds. Upspin names every
+      node by its path, so the IDs can be derived from the path name or
+      kept in a file that the next process reads.
+    - **Adopting a descriptor in the FUSE library.**
+      `github.com/presotto/fuse` opens the device itself and always runs
+      `INIT`; it needs a way to serve an existing descriptor with saved
+      `INIT` parameters.
+    - **Writes in flight.** Files written through upspinfs wait in the
+      local cache until they are put; a restart must find and finish
+      them, not drop them.
+    - **A test** that kills upspinfs in the middle of a read and of a
+      write, and checks that the mount answers afterwards.
+
+    Production systems that do this, for comparison: JuiceFS 1.2+ (a
+    daemon keeps the descriptor and restarts the service process),
+    EdenFS (the old process hands the descriptor and its inode map to
+    the new one), and gke-labs objectfs (`SCM_RIGHTS`, without a node ID
+    map, which is the part that broke).
