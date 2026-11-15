@@ -1,5 +1,6 @@
 # BCR builds this module as a dependency of another, so a target here is
-# written as @upspin//..., and the root module's dev dependencies and its
+# written as @upspin//... (the test module names filmil_upspin with
+# repo_name = "upspin"), and the root module's dev dependencies and its
 # custom registry are not there. The integration module is that other
 # module; see integration/MODULE.bazel.
 #

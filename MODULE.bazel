@@ -1,5 +1,9 @@
+# The module is named filmil_upspin, not upspin: this is a spin-off of
+# Upspin (upspin.io), and the name upspin belongs to the original project.
+# Users who want the short repository name can write
+# bazel_dep(name = "filmil_upspin", version = ..., repo_name = "upspin").
 module(
-    name = "upspin",
+    name = "filmil_upspin",
     version = "42.1.6",
     bazel_compatibility = [">=8.0.0"],
 )

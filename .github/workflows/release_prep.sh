@@ -32,6 +32,6 @@ cat <<NOTES
 ## Using Bzlmod
 
 \`\`\`starlark
-bazel_dep(name = "upspin", version = "${VERSION}")
+bazel_dep(name = "filmil_upspin", version = "${VERSION}", repo_name = "upspin")
 \`\`\`
 NOTES

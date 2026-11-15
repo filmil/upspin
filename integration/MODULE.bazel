@@ -5,13 +5,14 @@
 # no custom registry. BCR presubmit runs it as the test module; see
 # .bcr/presubmit.yml.
 module(
-    name = "upspin_integration",
+    name = "filmil_upspin_integration",
     version = "0.0.0",
 )
 
-bazel_dep(name = "upspin", version = "0.0.0")
+# repo_name keeps the labels @upspin//..., as a user of the module may.
+bazel_dep(name = "filmil_upspin", version = "0.0.0", repo_name = "upspin")
 local_path_override(
-    module_name = "upspin",
+    module_name = "filmil_upspin",
     path = "..",
 )
 
