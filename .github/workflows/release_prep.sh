@@ -32,6 +32,9 @@ cat <<NOTES
 ## Using Bzlmod
 
 \`\`\`starlark
-bazel_dep(name = "filmil_upspin", version = "${VERSION}", repo_name = "upspin")
+bazel_dep(name = "filmil_upspin", version = "${VERSION}")
 \`\`\`
+
+Labels are then \`@filmil_upspin//...\`. Add \`repo_name = "upspin"\` to
+the line to write them as \`@upspin//...\` instead.
 NOTES

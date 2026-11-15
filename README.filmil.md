@@ -72,6 +72,28 @@ See [doc/security.filmil.md](doc/security.filmil.md) for the scheme and
 the key file formats, and [doc/config.filmil.md](doc/config.filmil.md)
 for the settings.
 
+## The Bazel module: filmil_upspin
+
+The Bazel module is named `filmil_upspin`, because this is a spin-off and
+the name `upspin` belongs to the original project.
+Releases up to 45.2.0 were published as `upspin` in the custom registry,
+and stay there; later releases are published as `filmil_upspin`.
+
+```starlark
+bazel_dep(name = "filmil_upspin", version = "<version>")
+```
+
+Labels are then `@filmil_upspin//...`.
+Add `repo_name = "upspin"` to write them as `@upspin//...`.
+
+The Go module path is still `upspin.io`.
+So one build cannot hold both this module and another copy of
+`upspin.io`: not the original, and not an old `upspin` release of this
+one.
+Two Go packages with the same import path collide in `rules_go`.
+A build that pulls in both, for example through two dependencies, must
+move them all to `filmil_upspin`.
+
 ## Checks for Bazel Central Registry publication
 
 The module is published to the Bazel Central Registry (BCR), and these
