@@ -135,6 +135,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_CONFIG: .github/gitleaks.toml
+          # Pinned, because .github/gitleaks.toml uses the [allowlist]
+          # table that this version reads; see the comment there.
+          GITLEAKS_VERSION: "8.24.3"
 
 
 
