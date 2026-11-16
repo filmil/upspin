@@ -218,8 +218,9 @@ func SaveKeys(where string, rotate bool, newPublic, newPrivate, secretStr string
 		return nil // No need to save duplicates.
 	}
 	// An archive written as JSON cannot take a key pair appended in the
-	// line format, so rewrite it in the line format first.
-	if err := archiveToLines(archiveFile); err != nil {
+	// line format, so rewrite it in the line format first. Check that the
+	// old keys and the archive load before anything is written.
+	if err := archiveToLines(archiveFile, public, private); err != nil {
 		return err
 	}
 
@@ -249,23 +250,46 @@ func SaveKeys(where string, rotate bool, newPublic, newPrivate, secretStr string
 	return writeKeys(where, newPublic, newPrivate, secretStr)
 }
 
-// archiveToLines rewrites the key archive in the line format if it is
-// written as JSON. A missing archive, or one in the line format, is left
-// as it is.
-func archiveToLines(archiveFile string) error {
+// archiveToLines checks that the old key pair, public and private in the
+// line format, and the key archive load together, and rewrites the
+// archive in the line format if it is written as JSON. A missing archive,
+// or one in the line format, is left as it is. The rewrite goes through a
+// temporary file and a rename, so that an interrupted write leaves the old
+// archive in place.
+func archiveToLines(archiveFile string, public, private []byte) error {
 	data, err := os.ReadFile(archiveFile)
-	if os.IsNotExist(err) {
-		return nil
-	}
-	if err != nil {
+	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
 	lines, err := factotum.ArchiveFromFile(data)
 	if err != nil {
 		return err // Halt. The archive needs manual attention.
 	}
+	if _, err := factotum.NewFromKeys(public, private, lines); err != nil {
+		return errors.Errorf("existing keys in %s do not load: %v", filepath.Dir(archiveFile), err)
+	}
 	if bytes.Equal(lines, data) {
 		return nil
 	}
-	return os.WriteFile(archiveFile, lines, 0600)
+	tmp, err := os.CreateTemp(filepath.Dir(archiveFile), ".secret2.upspinkey-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name()) // No effect after a successful rename.
+	if err := tmp.Chmod(0600); err != nil {
+		tmp.Close()
+		return err
+	}
+	if _, err := tmp.Write(lines); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmp.Name(), archiveFile)
 }

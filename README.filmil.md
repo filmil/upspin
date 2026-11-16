@@ -90,24 +90,31 @@ A later release will switch the writers to JSON.
    "packing": "ee", "cmdflags": {"upspinfs": {"cachedir": "/tmp"}}}
   ```
 
-  A file that is not valid JSON is read as YAML, as before.
+  A file that does not start with `{` is read as YAML, as before.
+  A file that starts with `{` but is not valid JSON is read as YAML too,
+  since YAML accepts more than JSON; if that fails as well, the error
+  names both attempts.
 * **`public.upspinkey`:**
   `{"type": "p256+mlkem768", "x": "...", "y": "...", "encapsulation_key": "..."}`.
   The fields are the lines of the original format, named.
   `encapsulation_key` is present only for a key type that names a KEM.
 * **`secret.upspinkey`:** `{"d": "...", "kem_seed": "...", "secret_seed": "..."}`.
-  `kem_seed` is present only for a key type that names a KEM.
-  `secret_seed` is optional and not read; it records the proquint words
-  that re-create the key, as the `# ...` comment does in the original
-  format.
+  `kem_seed` is present only for a key type that names a KEM; a mismatch
+  with the type in `public.upspinkey` is an error when the keys load.
+  `secret_seed` is optional; it records the proquint words that re-create
+  the key, and is kept as the `# ...` comment of the original format, so
+  a rotation keeps it in the archive.
 * **`secret2.upspinkey`,** the archive of earlier key pairs:
   `{"keys": [{"date": "...", "public": {...}, "private": {...}}]}`,
   where `public` and `private` have the fields above.
   When `upspin keygen -rotate` adds a pair to an archive written as JSON,
-  it rewrites the archive in the original format first.
+  it first checks that the old keys load, then rewrites the archive in
+  the original format through a temporary file and a rename.
 
 A key file in JSON rejects fields it does not know, so a misspelled field
 name is an error instead of an empty value.
+Each key value must be one token of the original format: letters, digits
+and the characters `+`, `/`, `=` and `-`.
 Only the files change: the public key that goes over the wire, to the
 keyserver and in directory entries, keeps its original form.
 
