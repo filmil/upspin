@@ -7,6 +7,7 @@ package keygen
 import (
 	"bytes"
 	"crypto/mlkem"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -305,5 +306,85 @@ func TestSaveKeys(t *testing.T) {
 	}
 	if got, want := strings.TrimSpace(func() string { b, _ := os.ReadFile(filepath.Join(sub, "secret.upspinkey")); return string(b) }()), strings.TrimSpace(priv1); got != want {
 		t.Errorf("secret.upspinkey without a seed = %q, want %q", got, want)
+	}
+}
+
+// jsonKeyFiles returns the JSON file forms of a classic key pair.
+func jsonKeyFiles(t *testing.T, pub, priv string) (factotum.PublicKeyFile, factotum.PrivateKeyFile) {
+	t.Helper()
+	p := strings.Split(strings.TrimSpace(pub), "\n")
+	if len(p) != 3 {
+		t.Fatalf("expected a classic public key, got %q", pub)
+	}
+	return factotum.PublicKeyFile{Type: p[0], X: p[1], Y: p[2]},
+		factotum.PrivateKeyFile{D: strings.TrimSpace(priv)}
+}
+
+// TestSaveKeysFromJSON checks a rotation when the existing key files and
+// archive are written as JSON: the old pair goes into the archive in the
+// line format, the JSON archive is rewritten in the line format, and
+// factotum knows all three keys afterwards.
+func TestSaveKeysFromJSON(t *testing.T) {
+	const (
+		seed0 = "kajof-lanod-katod-kidod.kanuf-kajot-kajuh-kijun"
+		seed1 = "latoj-katuf-kijuh-latuh.lanon-kunol-kinoz-lanuj"
+		seed2 = "kajug-kidod-kajug-latoh.litoj-lanoh-latol-kinoh"
+	)
+	dir := t.TempDir()
+	pub0, priv0, _, err := FromSecret("p256", seed0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pub1, priv1, _, err := FromSecret("p256", seed1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pub2, priv2, _, err := FromSecret("p384", seed2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	write := func(name string, v interface{}) {
+		b, err := json.Marshal(v)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, name), b, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	jp0, js0 := jsonKeyFiles(t, pub0, priv0)
+	jp1, js1 := jsonKeyFiles(t, pub1, priv1)
+	js1.SecretSeed = seed1
+	write("public.upspinkey", jp1)
+	write("secret.upspinkey", js1)
+	write("secret2.upspinkey", factotum.ArchiveFile{Keys: []factotum.ArchivedKeyPair{
+		{Date: "2026-01-01 00:00:00Z", Public: jp0, Private: js0},
+	}})
+
+	if err := SaveKeys(dir, true, pub2, priv2, seed2); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(filepath.Join(dir, "secret2.upspinkey"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	archive := string(b)
+	if strings.HasPrefix(strings.TrimSpace(archive), "{") {
+		t.Fatalf("archive is still JSON after a rotation: %q", archive)
+	}
+	if !strings.Contains(archive, pub0) || !strings.Contains(archive, pub1) {
+		t.Errorf("archive does not hold both earlier keys: %q", archive)
+	}
+	f, err := factotum.NewFromDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.PublicKey() != upspin.PublicKey(pub2) {
+		t.Errorf("factotum current key is not the rotated key")
+	}
+	for i, pub := range []string{pub0, pub1} {
+		if _, err := f.PublicKeyFromHash(factotum.KeyHash(upspin.PublicKey(pub))); err != nil {
+			t.Errorf("factotum does not know archived key %d: %v", i, err)
+		}
 	}
 }

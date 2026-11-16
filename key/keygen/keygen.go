@@ -7,6 +7,7 @@
 package keygen // import "upspin.io/key/keygen"
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
 	"os"
@@ -203,8 +204,23 @@ func SaveKeys(where string, rotate bool, newPublic, newPrivate, secretStr string
 	if err != nil {
 		return err // Halt. Existing files are corrupted and need manual attention.
 	}
+	// The existing files may be written as JSON. The archive is written
+	// in the line format, so convert them first.
+	pub, err := factotum.PublicKeyFromFile(public)
+	if err != nil {
+		return err // Halt. Existing files are corrupted and need manual attention.
+	}
+	public = []byte(pub)
+	if private, err = factotum.PrivateKeyFromFile(private); err != nil {
+		return err // Halt. Existing files are corrupted and need manual attention.
+	}
 	if string(public) == newPublic && string(private) == newPrivate {
 		return nil // No need to save duplicates.
+	}
+	// An archive written as JSON cannot take a key pair appended in the
+	// line format, so rewrite it in the line format first.
+	if err := archiveToLines(archiveFile); err != nil {
+		return err
 	}
 
 	// Write old key pair to archive file.
@@ -231,4 +247,25 @@ func SaveKeys(where string, rotate bool, newPublic, newPrivate, secretStr string
 
 	// Write the new keys.
 	return writeKeys(where, newPublic, newPrivate, secretStr)
+}
+
+// archiveToLines rewrites the key archive in the line format if it is
+// written as JSON. A missing archive, or one in the line format, is left
+// as it is.
+func archiveToLines(archiveFile string) error {
+	data, err := os.ReadFile(archiveFile)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	lines, err := factotum.ArchiveFromFile(data)
+	if err != nil {
+		return err // Halt. The archive needs manual attention.
+	}
+	if bytes.Equal(lines, data) {
+		return nil
+	}
+	return os.WriteFile(archiveFile, lines, 0600)
 }
