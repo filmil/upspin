@@ -274,12 +274,20 @@ func TestBadJSONKeyFiles(t *testing.T) {
 		{"bad type", "public", `{"type":"p999","x":"1","y":"2"}`, "p999"},
 		{"KEM key without encapsulation key", "public", `{"type":"p256+mlkem768","x":"1","y":"2"}`, `missing field "encapsulation_key"`},
 		{"encapsulation key on classic type", "public", `{"type":"p256","x":"1","y":"2","encapsulation_key":"QQ=="}`, "has no KEM"},
-		{"line break in a field", "public", `{"type":"p256","x":"1\n2","y":"2"}`, "line break"},
+		{"line break in a field", "public", `{"type":"p256","x":"1\n2","y":"2"}`, "cannot hold"},
+		{"comment in a field", "private", `{"d":"123 # junk"}`, "cannot hold"},
+		{"brace in a field", "private", `{"d":"{","kem_seed":"QQ=="}`, "cannot hold"},
+		{"hash in KEM seed", "private", `{"d":"1","kem_seed":"# not-a-seed"}`, "cannot hold"},
+		{"line break in secret seed", "private", `{"d":"1","secret_seed":"a\nb"}`, "line break"},
 		{"trailing data", "public", `{"type":"p256","x":"1","y":"2"} {}`, "after the JSON object"},
+		{"trailing brace", "public", `{"type":"p256","x":"1","y":"2"}}`, "after the JSON object"},
+		{"trailing bracket", "private", `{"d":"1"}] junk`, "after the JSON object"},
 		{"not JSON", "public", `{"type":`, "parsing JSON public key file"},
 		{"missing d", "private", `{"kem_seed":"QQ=="}`, `missing field "d"`},
 		{"private unknown field", "private", `{"d":"` + x + `","seed":"x"}`, "unknown field"},
 		{"archive bad key", "archive", `{"keys":[{"public":{"type":"p256","x":"1"},"private":{"d":"1"}}]}`, "key 0: public"},
+		{"archive KEM key without KEM seed", "archive", `{"keys":[{"public":{"type":"p256+mlkem768","x":"1","y":"2","encapsulation_key":"QQ=="},"private":{"d":"1"}}]}`, `missing field "kem_seed"`},
+		{"archive classic key with KEM seed", "archive", `{"keys":[{"public":{"type":"p256","x":"1","y":"2"},"private":{"d":"1","kem_seed":"QQ=="}}]}`, "has no KEM"},
 		{"archive date line break", "archive", `{"keys":[{"date":"a\nb","public":{"type":"p256","x":"1","y":"2"},"private":{"d":"1"}}]}`, `"date" holds a line break`},
 	}
 	for _, tc := range tests {
@@ -323,4 +331,25 @@ func FuzzKeyFileJSON(f *testing.F) {
 			t.Errorf("ArchiveFromFile returned JSON: %q", b)
 		}
 	})
+}
+
+// TestSecretSeedKept checks that the secret seed of a JSON private key
+// becomes the comment after the private key in the line format, so that a
+// rotation keeps it in the archive.
+func TestSecretSeedKept(t *testing.T) {
+	const seed = "latoj-katuf-kijuh-latuh.lanon-kunol-kinoz-lanuj"
+	got, err := PrivateKeyFromFile([]byte(`{"d":"123","kem_seed":"QQ==","secret_seed":"` + seed + `"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "123\nQQ== # " + seed + "\n"; string(got) != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+	a, err := ArchiveFromFile([]byte(`{"keys":[{"date":"d","public":{"type":"p256","x":"1","y":"2"},"private":{"d":"3","secret_seed":"` + seed + `"}}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "# EE d\np256\n1\n2\n3 # " + seed + "\n"; string(a) != want {
+		t.Errorf("archive: got %q, want %q", a, want)
+	}
 }

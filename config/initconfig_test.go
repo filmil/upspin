@@ -329,7 +329,7 @@ upspinfs:
 func TestJSONNumbers(t *testing.T) {
 	vals := map[string]string{"cachesize": ""}
 	other := map[string]interface{}{}
-	if err := valsFromYAML(vals, other, []byte(`{"cachesize": 10000000000, "x": {"n": 10000000000, "f": 1.5}}`)); err != nil {
+	if err := valsFromYAML(vals, other, []byte(`{"cachesize": 10000000000, "x": {"n": 10000000000, "f": 1.5, "u": 18446744073709551615}}`)); err != nil {
 		t.Fatal(err)
 	}
 	if got, want := vals["cachesize"], "10000000000"; got != want {
@@ -344,6 +344,19 @@ func TestJSONNumbers(t *testing.T) {
 	}
 	if got, want := x["f"], 1.5; got != want {
 		t.Errorf("x.f: got %#v, want %#v", got, want)
+	}
+	if got, want := x["u"], uint64(18446744073709551615); got != want {
+		t.Errorf("x.u: got %#v, want %#v", got, want)
+	}
+}
+
+// TestJSONTrailingData checks that data after the JSON object is not
+// ignored: such a file is not JSON, and it falls back to YAML.
+func TestJSONTrailingData(t *testing.T) {
+	for _, data := range []string{`{"username": "u@example.com"}}`, `{"username": "u@example.com"}] junk`} {
+		if _, err := valsFromJSON([]byte(data)); err == nil {
+			t.Errorf("valsFromJSON(%q): no error for trailing data", data)
+		}
 	}
 }
 

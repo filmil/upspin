@@ -31,3 +31,8 @@ The settings below were added for the `eepq` packing; see
   the `upspinfs` cache.
   Directories, links, and Access and Group files are exempt.
   It is unset by default.
+
+## JSON
+
+The config file may be written as JSON, with the same keys.
+See "Config and key files as JSON" in [README.filmil.md](../README.filmil.md).

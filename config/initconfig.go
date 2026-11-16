@@ -14,6 +14,7 @@ import (
 	"os"
 	osuser "os/user"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	yaml "gopkg.in/yaml.v2"
@@ -312,8 +313,9 @@ func isJSONObject(data []byte) bool {
 	return bytes.HasPrefix(bytes.TrimSpace(data), []byte("{"))
 }
 
-// valsFromJSON parses data as one JSON object. Numbers become int64 where
-// they are whole and fit, float64 otherwise, as YAML would give them, so
+// valsFromJSON parses data as one JSON object. Whole numbers become int64,
+// or uint64 above the int64 range, and others float64, as YAML would give
+// them, so
 // that asString and the cmdflags handling see the same values for either
 // format.
 func valsFromJSON(data []byte) (map[string]interface{}, error) {
@@ -326,7 +328,7 @@ func valsFromJSON(data []byte) (map[string]interface{}, error) {
 	if err := dec.Decode(&vals); err != nil {
 		return nil, err
 	}
-	if dec.More() {
+	if _, err := dec.Token(); err != io.EOF {
 		return nil, errors.Str("data after the JSON object")
 	}
 	for k, v := range vals {
@@ -342,6 +344,9 @@ func fromJSONNumbers(v interface{}) interface{} {
 	case json.Number:
 		if i, err := vv.Int64(); err == nil {
 			return i
+		}
+		if u, err := strconv.ParseUint(vv.String(), 10, 64); err == nil {
+			return u
 		}
 		if f, err := vv.Float64(); err == nil {
 			return f
