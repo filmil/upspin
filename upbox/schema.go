@@ -140,6 +140,7 @@ import (
 	"time"
 
 	"upspin.io/config"
+	"upspin.io/factotum"
 	"upspin.io/log"
 	"upspin.io/rpc/local"
 	"upspin.io/test/testutil"
@@ -599,7 +600,11 @@ func (sc *Schema) Start() error {
 		if keyUser == "" {
 			continue
 		}
-		pk, err := os.ReadFile(filepath.Join(sc.Dir, u.Name, "public.upspinkey"))
+		pkFile, err := os.ReadFile(filepath.Join(sc.Dir, u.Name, "public.upspinkey"))
+		if err != nil {
+			return err
+		}
+		pk, err := factotum.PublicKeyFromFile(pkFile)
 		if err != nil {
 			return err
 		}

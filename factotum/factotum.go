@@ -127,6 +127,7 @@ var AllUsersKeyHash = KeyHash(upspin.AllUsersKey)
 
 // NewFromDir returns a new Factotum providing all needed private key operations,
 // loading keys from a directory containing *.upspinkey files.
+// Each file may be written as JSON or in the line format; see keyfile.go.
 // Our desired end state is that Factotum is implemented on each platform by the
 // best local means of protecting private keys. Please do not break the abstraction
 // by hand coding direct generation or use of private keys.
@@ -138,28 +139,47 @@ func NewFromDir(dir string) (upspin.Factotum, error) {
 		return nil, errors.E(op, err)
 	}
 	privBytes = stripCR(privBytes)
+	if privBytes, err = PrivateKeyFromFile(privBytes); err != nil {
+		return nil, errors.E(op, err)
+	}
 	pubBytes, err := readFile(op, dir, "public.upspinkey")
 	if err != nil {
 		return nil, errors.E(op, err)
 	}
-	pubBytes = stripCR(pubBytes)
+	pub, err := PublicKeyFromFile(stripCR(pubBytes))
+	if err != nil {
+		return nil, errors.E(op, err)
+	}
+	pubBytes = []byte(pub)
 
 	// Read older key pairs.
 	s2, err := readFile(op, dir, "secret2.upspinkey")
 	if err != nil && !errors.Is(errors.NotExist, err) {
 		return nil, err
 	}
-	s2 = stripCR(s2)
+	if s2, err = ArchiveFromFile(stripCR(s2)); err != nil {
+		return nil, errors.E(op, err)
+	}
 
 	return newFactotum(errors.Op(fmt.Sprintf("%s(%q)", op, dir)), pubBytes, privBytes, s2)
 }
 
 // NewFromKeys returns a new Factotum by providing it with the raw
 // representation of an Upspin user's public, private and optionally, archived
-// keys.
+// keys: the contents of the key files, written as JSON or in the line format.
 func NewFromKeys(public, private, archived []byte) (upspin.Factotum, error) {
 	const op errors.Op = "factotum.NewFromKeys"
-	return newFactotum(op, public, private, archived)
+	pub, err := PublicKeyFromFile(public)
+	if err != nil {
+		return nil, errors.E(op, err)
+	}
+	if private, err = PrivateKeyFromFile(private); err != nil {
+		return nil, errors.E(op, err)
+	}
+	if archived, err = ArchiveFromFile(archived); err != nil {
+		return nil, errors.E(op, err)
+	}
+	return newFactotum(op, []byte(pub), private, archived)
 }
 
 // newFactotum creates a new Factotum using the given keys.

@@ -7,6 +7,7 @@ package config // import "upspin.io/config"
 
 import (
 	"bytes"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -273,12 +274,24 @@ func InitConfig(r io.Reader) (upspin.Config, error) {
 	return cfg, err
 }
 
-// valsFromYAML parses YAML from the given map and puts the values
-// into the provided map. Unrecognized keys generate an error.
+// valsFromYAML parses the config file data and puts the values into the
+// provided map. Unrecognized keys generate an error.
+//
+// The file may be written as JSON or as YAML. JSON is tried first; if the
+// data is not a JSON object, it is parsed as YAML, the original format.
+// Data that starts with "{" but is not valid JSON is still parsed as YAML,
+// which accepts more than JSON, and the JSON error is reported only if
+// YAML fails too.
 func valsFromYAML(vals map[string]string, other map[string]interface{}, data []byte) error {
-	newVals := map[string]interface{}{}
-	if err := yaml.Unmarshal(data, newVals); err != nil {
-		return errors.E(errors.Invalid, errors.Errorf("parsing YAML file: %v", err))
+	newVals, jsonErr := valsFromJSON(data)
+	if jsonErr != nil {
+		newVals = map[string]interface{}{}
+		if err := yaml.Unmarshal(data, newVals); err != nil {
+			if isJSONObject(data) {
+				return errors.E(errors.Invalid, errors.Errorf("parsing config file: as JSON: %v; as YAML: %v", jsonErr, err))
+			}
+			return errors.E(errors.Invalid, errors.Errorf("parsing YAML file: %v", err))
+		}
 	}
 	for k, v := range newVals {
 		if _, ok := vals[k]; ok {
@@ -292,6 +305,60 @@ func valsFromYAML(vals map[string]string, other map[string]interface{}, data []b
 		other[k] = v
 	}
 	return nil
+}
+
+// isJSONObject reports whether data starts like a JSON object.
+func isJSONObject(data []byte) bool {
+	return bytes.HasPrefix(bytes.TrimSpace(data), []byte("{"))
+}
+
+// valsFromJSON parses data as one JSON object. Numbers become int64 where
+// they are whole and fit, float64 otherwise, as YAML would give them, so
+// that asString and the cmdflags handling see the same values for either
+// format.
+func valsFromJSON(data []byte) (map[string]interface{}, error) {
+	if !isJSONObject(data) {
+		return nil, errors.Str("not a JSON object")
+	}
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.UseNumber()
+	vals := map[string]interface{}{}
+	if err := dec.Decode(&vals); err != nil {
+		return nil, err
+	}
+	if dec.More() {
+		return nil, errors.Str("data after the JSON object")
+	}
+	for k, v := range vals {
+		vals[k] = fromJSONNumbers(v)
+	}
+	return vals, nil
+}
+
+// fromJSONNumbers replaces each json.Number in v with an int64 or a
+// float64.
+func fromJSONNumbers(v interface{}) interface{} {
+	switch vv := v.(type) {
+	case json.Number:
+		if i, err := vv.Int64(); err == nil {
+			return i
+		}
+		if f, err := vv.Float64(); err == nil {
+			return f
+		}
+		return vv.String()
+	case map[string]interface{}:
+		for k, e := range vv {
+			vv[k] = fromJSONNumbers(e)
+		}
+		return vv
+	case []interface{}:
+		for i, e := range vv {
+			vv[i] = fromJSONNumbers(e)
+		}
+		return vv
+	}
+	return v
 }
 
 // asString tries to convert a value back into its original string. This will

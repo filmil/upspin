@@ -72,6 +72,45 @@ See [doc/security.filmil.md](doc/security.filmil.md) for the scheme and
 the key file formats, and [doc/config.filmil.md](doc/config.filmil.md)
 for the settings.
 
+## Config and key files as JSON
+
+The config file and the key files may be written as JSON.
+Every reader tries JSON first and falls back to the original format, so
+a directory may hold files of either kind.
+The writers (`upspin keygen`, `upspin signup`) still write the original
+format, so that binaries from before this change keep reading what they
+write.
+A later release will switch the writers to JSON.
+
+* **The config file** (`$HOME/upspin/config`, and the `config` file in a
+  server's configuration directory) is a JSON object with the same keys:
+
+  ```json
+  {"username": "you@example.com", "secrets": "/home/you/.ssh",
+   "packing": "ee", "cmdflags": {"upspinfs": {"cachedir": "/tmp"}}}
+  ```
+
+  A file that is not valid JSON is read as YAML, as before.
+* **`public.upspinkey`:**
+  `{"type": "p256+mlkem768", "x": "...", "y": "...", "encapsulation_key": "..."}`.
+  The fields are the lines of the original format, named.
+  `encapsulation_key` is present only for a key type that names a KEM.
+* **`secret.upspinkey`:** `{"d": "...", "kem_seed": "...", "secret_seed": "..."}`.
+  `kem_seed` is present only for a key type that names a KEM.
+  `secret_seed` is optional and not read; it records the proquint words
+  that re-create the key, as the `# ...` comment does in the original
+  format.
+* **`secret2.upspinkey`,** the archive of earlier key pairs:
+  `{"keys": [{"date": "...", "public": {...}, "private": {...}}]}`,
+  where `public` and `private` have the fields above.
+  When `upspin keygen -rotate` adds a pair to an archive written as JSON,
+  it rewrites the archive in the original format first.
+
+A key file in JSON rejects fields it does not know, so a misspelled field
+name is an error instead of an empty value.
+Only the files change: the public key that goes over the wire, to the
+keyserver and in directory entries, keeps its original form.
+
 ## The Bazel module: filmil_upspin
 
 The Bazel module is named `filmil_upspin`, because this is a spin-off and

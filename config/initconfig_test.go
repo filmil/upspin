@@ -293,3 +293,111 @@ func TestExperimentalEEPQ(t *testing.T) {
 		t.Errorf("unknown experimental feature: got %v, want Invalid", err)
 	}
 }
+
+// TestCmdFlagsJSON checks that the config of TestCmdFlags, written as
+// JSON, gives the same values, nested cmdflags included.
+func TestCmdFlagsJSON(t *testing.T) {
+	config := `{
+  "keyserver": "key.example.com",
+  "cmdflags": {
+    "cacheserver": {"cachedir": "/tmp", "cachesize": 1000000000},
+    "upspinfs": {"cachedir": "/tmp"}
+  },
+  "dirserver": "remote,dir.example.com",
+  "storeserver": "store.example.com:8080",
+  "secrets": "` + secretsDir + `"
+}
+`
+	expect := expectations{
+		username:    "noone@nowhere.org",
+		packing:     upspin.EEPack,
+		keyserver:   upspin.Endpoint{Transport: upspin.Remote, NetAddr: "key.example.com:443"},
+		dirserver:   upspin.Endpoint{Transport: upspin.Remote, NetAddr: "dir.example.com:443"},
+		storeserver: upspin.Endpoint{Transport: upspin.Remote, NetAddr: "store.example.com:8080"},
+		cmdflags: `cacheserver:
+  cachedir: /tmp
+  cachesize: 1000000000
+upspinfs:
+  cachedir: /tmp`,
+	}
+	testConfig(t, &expect, config)
+}
+
+// TestJSONNumbers checks that a whole number in a JSON config keeps its
+// decimal form, both as a top-level value and as a command flag, and is
+// not turned into a float such as 1e+10.
+func TestJSONNumbers(t *testing.T) {
+	vals := map[string]string{"cachesize": ""}
+	other := map[string]interface{}{}
+	if err := valsFromYAML(vals, other, []byte(`{"cachesize": 10000000000, "x": {"n": 10000000000, "f": 1.5}}`)); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := vals["cachesize"], "10000000000"; got != want {
+		t.Errorf("cachesize: got %q, want %q", got, want)
+	}
+	x, ok := other["x"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("x: got %T, want a map", other["x"])
+	}
+	if got, want := x["n"], int64(10000000000); got != want {
+		t.Errorf("x.n: got %#v, want %#v", got, want)
+	}
+	if got, want := x["f"], 1.5; got != want {
+		t.Errorf("x.f: got %#v, want %#v", got, want)
+	}
+}
+
+// TestJSONAndYAMLAgree checks that the same config written as JSON and
+// as YAML gives the same values.
+func TestJSONAndYAMLAgree(t *testing.T) {
+	yamlCfg := "username: u@example.com\nsecrets: none\nkeyserver: remote,key.example.com:443\npacking: plain\n"
+	jsonCfg := `{"username": "u@example.com", "secrets": "none", "keyserver": "remote,key.example.com:443", "packing": "plain"}`
+	parse := func(s string) (map[string]string, map[string]interface{}) {
+		t.Helper()
+		vals := map[string]string{"username": "", "secrets": "", "keyserver": "", "packing": ""}
+		other := map[string]interface{}{}
+		if err := valsFromYAML(vals, other, []byte(s)); err != nil {
+			t.Fatalf("parsing %q: %v", s, err)
+		}
+		return vals, other
+	}
+	yv, yo := parse(yamlCfg)
+	jv, jo := parse(jsonCfg)
+	if !reflect.DeepEqual(yv, jv) || len(yo) != 0 || len(jo) != 0 {
+		t.Errorf("YAML gives %v %v; JSON gives %v %v", yv, yo, jv, jo)
+	}
+}
+
+// TestJSONFallbackToYAML checks that data starting with "{" that is not
+// valid JSON is still read as YAML, and that data valid as neither gets
+// an error naming both attempts.
+func TestJSONFallbackToYAML(t *testing.T) {
+	vals := map[string]string{"username": "", "secrets": ""}
+	other := map[string]interface{}{}
+	// A YAML flow mapping: not JSON, as the keys are not quoted.
+	if err := valsFromYAML(vals, other, []byte("{username: u@example.com, secrets: none}")); err != nil {
+		t.Fatalf("YAML flow mapping: %v", err)
+	}
+	if vals["username"] != "u@example.com" || vals["secrets"] != "none" {
+		t.Errorf("YAML flow mapping: got %v", vals)
+	}
+	err := valsFromYAML(vals, other, []byte(`{"username": "u@example.com",`))
+	if err == nil {
+		t.Fatal("no error for a truncated JSON object")
+	}
+	if !strings.Contains(err.Error(), "as JSON") || !strings.Contains(err.Error(), "as YAML") {
+		t.Errorf("error %q should name both the JSON and the YAML attempt", err)
+	}
+}
+
+// TestOtherKeyJSON checks that a key the config package does not know is
+// kept and readable with Value, in a JSON config as in YAML.
+func TestOtherKeyJSON(t *testing.T) {
+	cfg, err := InitConfig(strings.NewReader(`{"username": "u@example.com", "secrets": "` + secretsDir + `", "otherkey": "x"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.Value("otherkey"); got != "x" {
+		t.Errorf("Value(otherkey): got %q, want %q", got, "x")
+	}
+}
