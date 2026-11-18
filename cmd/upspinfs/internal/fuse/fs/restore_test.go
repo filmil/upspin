@@ -169,6 +169,29 @@ func TestRestoreRejectsBadState(t *testing.T) {
 	}
 }
 
+// TestRestoreNewIDGetsNewGeneration covers an ID above the restored ones. The
+// earlier server may have used and forgotten it at the highest generation.
+func TestRestoreNewIDGetsNewGeneration(t *testing.T) {
+	s := New(nil, nil)
+	err := s.Restore(State{
+		Nodes:          []NodeEntry{{ID: 2, Inode: 20, Generation: 1, Refs: 1, Node: &testNode{"a"}}},
+		NodeGeneration: 5,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.initTables(&testNode{"root"}); err != nil {
+		t.Fatal(err)
+	}
+	id, gen := s.saveNode(30, &testNode{"new"})
+	if id != 3 {
+		t.Errorf("new node got ID %d, want 3", id)
+	}
+	if gen <= 5 {
+		t.Errorf("new node got generation %d, want more than 5", gen)
+	}
+}
+
 func TestRestoreRejectsRootAsOtherNode(t *testing.T) {
 	root := &testNode{"root"}
 	s := New(nil, nil)
