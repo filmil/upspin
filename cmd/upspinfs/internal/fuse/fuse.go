@@ -189,6 +189,29 @@ func Mount(dir string, options ...MountOption) (*Conn, error) {
 	return c, nil
 }
 
+// Adopt returns a Conn that serves dev, a /dev/fuse descriptor of a mount
+// that is already initialized. It does not run INIT: the kernel negotiates
+// only once per mount, and proto must be the version that negotiation chose,
+// as returned by Protocol on the Conn that Mount created.
+//
+// The returned Conn owns dev. Its Ready channel is already closed.
+func Adopt(dev *os.File, proto Protocol) (*Conn, error) {
+	if dev == nil {
+		return nil, errors.New("fuse: adopt: nil device")
+	}
+	min := Protocol{protoVersionMinMajor, protoVersionMinMinor}
+	if proto.LT(min) {
+		return nil, &OldVersionError{Kernel: proto, LibraryMin: min}
+	}
+	max := Protocol{protoVersionMaxMajor, protoVersionMaxMinor}
+	if max.LT(proto) {
+		return nil, fmt.Errorf("fuse: adopt: protocol %v is newer than the supported %v", proto, max)
+	}
+	ready := make(chan struct{})
+	close(ready)
+	return &Conn{Ready: ready, dev: dev, proto: proto}, nil
+}
+
 type OldVersionError struct {
 	Kernel     Protocol
 	LibraryMin Protocol
@@ -565,6 +588,13 @@ func (c *Conn) fd() int {
 
 func (c *Conn) Protocol() Protocol {
 	return c.proto
+}
+
+// File returns the /dev/fuse descriptor of the connection. A process that
+// keeps the mount alive passes it to the process that serves the mount,
+// which calls Adopt. The Conn still owns the file.
+func (c *Conn) File() *os.File {
+	return c.dev
 }
 
 // ReadRequest returns the next FUSE request from the kernel.
