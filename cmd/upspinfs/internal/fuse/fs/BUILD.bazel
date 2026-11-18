@@ -1,4 +1,4 @@
-load("@rules_go//go:def.bzl", "go_library")
+load("@rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
     name = "fs",
@@ -12,4 +12,13 @@ go_library(
         "//cmd/upspinfs/internal/fuse",
         "//cmd/upspinfs/internal/fuse/fuseutil",
     ],
+)
+
+go_test(
+    name = "fs_test",
+    srcs = ["restore_test.go"],
+    embed = [":fs"],
+    # TestAdoptedMountAnswers mounts a real FUSE file system.
+    tags = ["no-sandbox"],
+    deps = ["//cmd/upspinfs/internal/fuse"],
 )

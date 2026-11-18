@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"io"
@@ -323,6 +324,10 @@ type HandleReleaser interface {
 }
 
 type Config struct {
+	// Observer, if not nil, is told about every change to the node and
+	// handle tables. See TableObserver.
+	Observer TableObserver
+
 	// Function to send debug log messages to. If nil, use fuse.Debug.
 	// Note that changing this or fuse.Debug may not affect existing
 	// calls to Serve.
@@ -353,6 +358,7 @@ func New(conn *fuse.Conn, config *Config) *Server {
 	if config != nil {
 		s.debug = config.Debug
 		s.context = config.WithContext
+		s.observer = config.Observer
 	}
 	if s.debug == nil {
 		s.debug = fuse.Debug
@@ -360,11 +366,127 @@ func New(conn *fuse.Conn, config *Config) *Server {
 	return s
 }
 
+// rootNodeID is the node ID the kernel uses for the root of every mount.
+const rootNodeID fuse.NodeID = 1
+
+// NodeEntry describes one node the kernel holds a reference to.
+type NodeEntry struct {
+	ID         fuse.NodeID
+	Inode      uint64
+	Generation uint64
+	Refs       uint64 // Lookups the kernel has not yet forgotten.
+	Node       Node   // Not used by Restore for the root node.
+}
+
+// HandleEntry describes one file handle the kernel holds.
+type HandleEntry struct {
+	ID     fuse.HandleID
+	Handle Handle
+}
+
+// TableObserver is told about changes to the tables of a Server, so that
+// the tables can be rebuilt by a later process that adopts the mount.
+//
+// The Server calls these methods before it answers the kernel, so a process
+// that dies after the kernel learned of an ID has already reported that ID.
+// After a crash a reference count may therefore be too high, which only
+// delays a Forget, and never too low.
+//
+// The methods are called one at a time with a Server lock held. They must
+// return quickly and must not call the Server.
+type TableObserver interface {
+	// NodeSaved reports a new node or a changed reference count.
+	NodeSaved(e NodeEntry)
+	// NodeRemoved reports that the kernel forgot a node.
+	NodeRemoved(id fuse.NodeID)
+	// HandleSaved reports a new handle.
+	HandleSaved(e HandleEntry)
+	// HandleRemoved reports that the kernel released a handle.
+	HandleRemoved(id fuse.HandleID)
+}
+
+// State holds the tables of a Server, for use by Restore.
+type State struct {
+	Nodes   []NodeEntry
+	Handles []HandleEntry
+
+	// NodeGeneration is the highest generation handed out so far. Restore
+	// also takes into account the generations in Nodes.
+	NodeGeneration uint64
+}
+
+// Restore makes the Server continue with the node and handle IDs of an
+// earlier Server of the same mount. It must be called before Serve.
+//
+// IDs that st does not use become free. The Server gives a reused node ID a
+// new generation, as it does for any reused ID.
+func (s *Server) Restore(st State) error {
+	nodes := make(map[fuse.NodeID]bool, len(st.Nodes))
+	values := make(map[Node]bool, len(st.Nodes))
+	for _, e := range st.Nodes {
+		if e.ID == 0 {
+			return errors.New("fuse: restore: node ID 0")
+		}
+		if nodes[e.ID] {
+			return fmt.Errorf("fuse: restore: duplicate node ID %v", e.ID)
+		}
+		nodes[e.ID] = true
+		if e.Refs == 0 {
+			return fmt.Errorf("fuse: restore: node ID %v has no references", e.ID)
+		}
+		if e.ID == rootNodeID {
+			continue
+		}
+		if e.Node == nil {
+			return fmt.Errorf("fuse: restore: node ID %v has no node", e.ID)
+		}
+		if values[e.Node] {
+			return fmt.Errorf("fuse: restore: node ID %v repeats a node", e.ID)
+		}
+		values[e.Node] = true
+	}
+	handles := make(map[fuse.HandleID]bool, len(st.Handles))
+	for _, e := range st.Handles {
+		if e.ID == 0 {
+			return errors.New("fuse: restore: handle ID 0")
+		}
+		if handles[e.ID] {
+			return fmt.Errorf("fuse: restore: duplicate handle ID %v", e.ID)
+		}
+		handles[e.ID] = true
+		if e.Handle == nil {
+			return fmt.Errorf("fuse: restore: handle ID %v has no handle", e.ID)
+		}
+	}
+	s.meta.Lock()
+	defer s.meta.Unlock()
+	s.restored = &st
+	return nil
+}
+
+func (c *Server) reportNode(id fuse.NodeID, sn *serveNode) {
+	if c.observer != nil {
+		c.observer.NodeSaved(NodeEntry{
+			ID:         id,
+			Inode:      sn.inode,
+			Generation: sn.generation,
+			Refs:       sn.refs,
+			Node:       sn.node,
+		})
+	}
+}
+
 type Server struct {
 	// set in New
 	conn    *fuse.Conn
 	debug   func(msg interface{})
 	context func(ctx context.Context, req fuse.Request) context.Context
+
+	// observer may be nil. It is called with meta held.
+	observer TableObserver
+
+	// restored is set by Restore and used once, by Serve.
+	restored *State
 
 	// set once at Serve time
 	fs           FS
@@ -399,16 +521,7 @@ func (s *Server) Serve(fs FS) error {
 	if err != nil {
 		return fmt.Errorf("cannot obtain root node: %v", err)
 	}
-	// Recognize the root node if it's ever returned from Lookup,
-	// passed to Invalidate, etc.
-	s.nodeRef[root] = 1
-	s.node = append(s.node, nil, &serveNode{
-		inode:      1,
-		generation: s.nodeGen,
-		node:       root,
-		refs:       1,
-	})
-	s.handle = append(s.handle, nil)
+	s.initTables(root)
 
 	for {
 		req, err := s.conn.ReadRequest()
@@ -426,6 +539,68 @@ func (s *Server) Serve(fs FS) error {
 		}()
 	}
 	return nil
+}
+
+// initTables fills the node and handle tables, from the state given to
+// Restore if there is one.
+func (s *Server) initTables(root Node) {
+	s.meta.Lock()
+	defer s.meta.Unlock()
+
+	// Recognize the root node if it's ever returned from Lookup,
+	// passed to Invalidate, etc.
+	s.nodeRef[root] = 1
+	s.node = append(s.node, nil, &serveNode{
+		inode:      1,
+		generation: s.nodeGen,
+		node:       root,
+		refs:       1,
+	})
+	s.handle = append(s.handle, nil)
+
+	st := s.restored
+	s.restored = nil
+	if st == nil {
+		return
+	}
+	s.nodeGen = st.NodeGeneration
+	for _, e := range st.Nodes {
+		if e.Generation > s.nodeGen {
+			s.nodeGen = e.Generation
+		}
+		if e.ID == rootNodeID {
+			// The new process has its own root value.
+			sn := s.node[rootNodeID]
+			sn.inode, sn.generation, sn.refs = e.Inode, e.Generation, e.Refs
+			continue
+		}
+		for fuse.NodeID(len(s.node)) <= e.ID {
+			s.node = append(s.node, nil)
+		}
+		s.node[e.ID] = &serveNode{
+			inode:      e.Inode,
+			generation: e.Generation,
+			node:       e.Node,
+			refs:       e.Refs,
+		}
+		s.nodeRef[e.Node] = e.ID
+	}
+	for id := fuse.NodeID(len(s.node)) - 1; id > rootNodeID; id-- {
+		if s.node[id] == nil {
+			s.freeNode = append(s.freeNode, id)
+		}
+	}
+	for _, e := range st.Handles {
+		for fuse.HandleID(len(s.handle)) <= e.ID {
+			s.handle = append(s.handle, nil)
+		}
+		s.handle[e.ID] = &serveHandle{handle: e.Handle}
+	}
+	for id := fuse.HandleID(len(s.handle)) - 1; id > 0; id-- {
+		if s.handle[id] == nil {
+			s.freeHandle = append(s.freeHandle, id)
+		}
+	}
 }
 
 // Serve serves a FUSE connection with the default settings. See
@@ -483,6 +658,7 @@ func (c *Server) saveNode(inode uint64, node Node) (id fuse.NodeID, gen uint64) 
 	if id, ok := c.nodeRef[node]; ok {
 		sn := c.node[id]
 		sn.refs++
+		c.reportNode(id, sn)
 		return id, sn.generation
 	}
 
@@ -498,6 +674,7 @@ func (c *Server) saveNode(inode uint64, node Node) (id fuse.NodeID, gen uint64) 
 	}
 	sn.generation = c.nodeGen
 	c.nodeRef[node] = id
+	c.reportNode(id, sn)
 	return id, sn.generation
 }
 
@@ -511,6 +688,9 @@ func (c *Server) saveHandle(handle Handle) (id fuse.HandleID) {
 	} else {
 		id = fuse.HandleID(len(c.handle))
 		c.handle = append(c.handle, shandle)
+	}
+	if c.observer != nil {
+		c.observer.HandleSaved(HandleEntry{ID: id, Handle: handle})
 	}
 	c.meta.Unlock()
 	return
@@ -553,8 +733,12 @@ func (c *Server) dropNode(id fuse.NodeID, n uint64) (forget bool) {
 		c.node[id] = nil
 		delete(c.nodeRef, snode.node)
 		c.freeNode = append(c.freeNode, id)
+		if c.observer != nil {
+			c.observer.NodeRemoved(id)
+		}
 		return true
 	}
+	c.reportNode(id, snode)
 	return false
 }
 
@@ -562,6 +746,9 @@ func (c *Server) dropHandle(id fuse.HandleID) {
 	c.meta.Lock()
 	c.handle[id] = nil
 	c.freeHandle = append(c.freeHandle, id)
+	if c.observer != nil {
+		c.observer.HandleRemoved(id)
+	}
 	c.meta.Unlock()
 }
 

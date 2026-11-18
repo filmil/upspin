@@ -39,6 +39,9 @@ go_library(
 
 go_test(
     name = "fuse_test",
-    srcs = ["fuse_kernel_test.go"],
+    srcs = [
+        "adopt_test.go",
+        "fuse_kernel_test.go",
+    ],
     deps = [":fuse"],
 )

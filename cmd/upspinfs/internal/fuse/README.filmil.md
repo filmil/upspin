@@ -13,3 +13,13 @@ The first commit that added this directory holds the upstream files
 unchanged, so `git log` shows every local change as a diff.
 
 The upstream license is in `LICENSE`.
+
+## Local changes
+
+- `fuse.Adopt` serves the descriptor of a mount that is already initialized.
+  It does not run INIT.
+- `Conn.File` returns the descriptor, so another process can inherit it.
+- `fs.Config.Observer` reports each change to the node and handle tables of
+  `fs.Server`.
+- `fs.Server.Restore` starts a server with the tables of an earlier one.
+- An unreachable `panic` is gone, because `go vet` reports it.
