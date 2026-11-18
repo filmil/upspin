@@ -1,0 +1,9 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "fuseutil",
+    srcs = ["fuseutil.go"],
+    importpath = "upspin.io/cmd/upspinfs/internal/fuse/fuseutil",
+    visibility = ["//cmd/upspinfs:__subpackages__"],
+    deps = ["//cmd/upspinfs/internal/fuse"],
+)

@@ -44,7 +44,6 @@ use_repo(
     "com_github_golang_protobuf",
     "com_github_microcosm_cc_bluemonday",
     "com_github_nytimes_gziphandler",
-    "com_github_presotto_fuse",
     "com_github_russross_blackfriday",
     "in_gopkg_yaml_v2",
     "org_golang_google_protobuf",

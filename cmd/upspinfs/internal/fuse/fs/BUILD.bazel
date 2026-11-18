@@ -1,0 +1,15 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "fs",
+    srcs = [
+        "serve.go",
+        "tree.go",
+    ],
+    importpath = "upspin.io/cmd/upspinfs/internal/fuse/fs",
+    visibility = ["//cmd/upspinfs:__subpackages__"],
+    deps = [
+        "//cmd/upspinfs/internal/fuse",
+        "//cmd/upspinfs/internal/fuse/fuseutil",
+    ],
+)

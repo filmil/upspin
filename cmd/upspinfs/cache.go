@@ -29,7 +29,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/presotto/fuse"
+	"upspin.io/cmd/upspinfs/internal/fuse"
 
 	lrucache "upspin.io/cache"
 	"upspin.io/client"

@@ -21,7 +21,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/presotto/fuse"
+	"upspin.io/cmd/upspinfs/internal/fuse"
 
 	"upspin.io/bind"
 	"upspin.io/client"

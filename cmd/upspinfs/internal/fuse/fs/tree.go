@@ -9,7 +9,7 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/presotto/fuse"
+	"upspin.io/cmd/upspinfs/internal/fuse"
 )
 
 // A Tree implements a basic read-only directory tree for FUSE.
