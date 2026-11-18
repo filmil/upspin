@@ -192,9 +192,12 @@ func Mount(dir string, options ...MountOption) (*Conn, error) {
 // Adopt returns a Conn that serves dev, a /dev/fuse descriptor of a mount
 // that is already initialized. It does not run INIT: the kernel negotiates
 // only once per mount, and proto must be the version that negotiation chose,
-// as returned by Protocol on the Conn that Mount created.
+// as returned by Protocol on the Conn that Mount created. The kernel keeps the
+// other results of INIT and the mount options, and the Conn does not need them.
 //
-// The returned Conn owns dev. Its Ready channel is already closed.
+// The returned Conn owns dev and closes it. To adopt the descriptor of another
+// Conn in the same process, pass a duplicate. Its Ready channel is already
+// closed.
 func Adopt(dev *os.File, proto Protocol) (*Conn, error) {
 	if dev == nil {
 		return nil, errors.New("fuse: adopt: nil device")
@@ -592,7 +595,8 @@ func (c *Conn) Protocol() Protocol {
 
 // File returns the /dev/fuse descriptor of the connection. A process that
 // keeps the mount alive passes it to the process that serves the mount,
-// which calls Adopt. The Conn still owns the file.
+// which calls Adopt. The Conn still owns the file and closes it, so a caller
+// that keeps the descriptor longer must duplicate it.
 func (c *Conn) File() *os.File {
 	return c.dev
 }

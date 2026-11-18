@@ -389,11 +389,18 @@ type HandleEntry struct {
 //
 // The Server calls these methods before it answers the kernel, so a process
 // that dies after the kernel learned of an ID has already reported that ID.
-// After a crash a reference count may therefore be too high, which only
-// delays a Forget, and never too low.
+// A process can also die after the report and before the answer. A restored
+// reference count may then be too high and a restored entry may be unknown
+// to the kernel. Such an entry stays in the tables until the mount ends. A
+// count is never too low.
 //
-// The methods are called one at a time with a Server lock held. They must
-// return quickly and must not call the Server.
+// The methods are called one at a time with the lock of the Server tables
+// held, which keeps the reports in table order. Every request that changes
+// the tables waits for them, so they must return quickly, for example after
+// a write to a memory file. They must not call the Server.
+//
+// The root node exists from the start and is not reported until its
+// reference count changes.
 type TableObserver interface {
 	// NodeSaved reports a new node or a changed reference count.
 	NodeSaved(e NodeEntry)
@@ -411,21 +418,29 @@ type State struct {
 	Handles []HandleEntry
 
 	// NodeGeneration is the highest generation handed out so far. Restore
-	// also takes into account the generations in Nodes.
+	// also takes into account the generations in Nodes. The restored Server
+	// hands out only higher generations.
 	NodeGeneration uint64
 }
+
+// maxRestoredID limits the IDs Restore accepts. The tables are slices indexed
+// by ID, so a damaged saved ID must not decide how much memory is allocated.
+const maxRestoredID = 1 << 28
 
 // Restore makes the Server continue with the node and handle IDs of an
 // earlier Server of the same mount. It must be called before Serve.
 //
-// IDs that st does not use become free. The Server gives a reused node ID a
-// new generation, as it does for any reused ID.
+// IDs that st does not use become free. The Server gives every node ID that
+// it hands out after Restore a new generation.
 func (s *Server) Restore(st State) error {
 	nodes := make(map[fuse.NodeID]bool, len(st.Nodes))
 	values := make(map[Node]bool, len(st.Nodes))
 	for _, e := range st.Nodes {
 		if e.ID == 0 {
 			return errors.New("fuse: restore: node ID 0")
+		}
+		if e.ID > maxRestoredID {
+			return fmt.Errorf("fuse: restore: node ID %v is too large", e.ID)
 		}
 		if nodes[e.ID] {
 			return fmt.Errorf("fuse: restore: duplicate node ID %v", e.ID)
@@ -450,6 +465,9 @@ func (s *Server) Restore(st State) error {
 		if e.ID == 0 {
 			return errors.New("fuse: restore: handle ID 0")
 		}
+		if e.ID > maxRestoredID {
+			return fmt.Errorf("fuse: restore: handle ID %v is too large", e.ID)
+		}
 		if handles[e.ID] {
 			return fmt.Errorf("fuse: restore: duplicate handle ID %v", e.ID)
 		}
@@ -458,8 +476,13 @@ func (s *Server) Restore(st State) error {
 			return fmt.Errorf("fuse: restore: handle ID %v has no handle", e.ID)
 		}
 	}
+	st.Nodes = append([]NodeEntry(nil), st.Nodes...)
+	st.Handles = append([]HandleEntry(nil), st.Handles...)
 	s.meta.Lock()
 	defer s.meta.Unlock()
+	if len(s.node) > 0 {
+		return errors.New("fuse: restore: the server is already serving")
+	}
 	s.restored = &st
 	return nil
 }
@@ -521,7 +544,9 @@ func (s *Server) Serve(fs FS) error {
 	if err != nil {
 		return fmt.Errorf("cannot obtain root node: %v", err)
 	}
-	s.initTables(root)
+	if err := s.initTables(root); err != nil {
+		return err
+	}
 
 	for {
 		req, err := s.conn.ReadRequest()
@@ -543,7 +568,7 @@ func (s *Server) Serve(fs FS) error {
 
 // initTables fills the node and handle tables, from the state given to
 // Restore if there is one.
-func (s *Server) initTables(root Node) {
+func (s *Server) initTables(root Node) error {
 	s.meta.Lock()
 	defer s.meta.Unlock()
 
@@ -561,18 +586,28 @@ func (s *Server) initTables(root Node) {
 	st := s.restored
 	s.restored = nil
 	if st == nil {
-		return
+		return nil
 	}
-	s.nodeGen = st.NodeGeneration
+	// IDs above the highest restored one may have been used and forgotten,
+	// and such an ID gets the current generation when it is handed out
+	// again. Moving past every known generation keeps each pair of ID and
+	// generation unique.
+	maxGen := st.NodeGeneration
 	for _, e := range st.Nodes {
-		if e.Generation > s.nodeGen {
-			s.nodeGen = e.Generation
+		if e.Generation > maxGen {
+			maxGen = e.Generation
 		}
+	}
+	s.nodeGen = maxGen + 1
+	for _, e := range st.Nodes {
 		if e.ID == rootNodeID {
 			// The new process has its own root value.
 			sn := s.node[rootNodeID]
 			sn.inode, sn.generation, sn.refs = e.Inode, e.Generation, e.Refs
 			continue
+		}
+		if e.Node == root {
+			return fmt.Errorf("fuse: restore: node ID %v repeats the root node", e.ID)
 		}
 		for fuse.NodeID(len(s.node)) <= e.ID {
 			s.node = append(s.node, nil)
@@ -601,6 +636,7 @@ func (s *Server) initTables(root Node) {
 			s.freeHandle = append(s.freeHandle, id)
 		}
 	}
+	return nil
 }
 
 // Serve serves a FUSE connection with the default settings. See

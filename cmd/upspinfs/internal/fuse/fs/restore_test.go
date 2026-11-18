@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -48,7 +49,9 @@ func (r *recorder) HandleRemoved(id fuse.HandleID) {
 func TestObserverSeesEveryChange(t *testing.T) {
 	rec := &recorder{}
 	s := New(nil, &Config{Observer: rec})
-	s.initTables(&testNode{"root"})
+	if err := s.initTables(&testNode{"root"}); err != nil {
+		t.Fatal(err)
+	}
 
 	a, b := &testNode{"a"}, &testNode{"b"}
 	s.saveNode(10, a)
@@ -91,7 +94,9 @@ func TestRestoreKeepsIDs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s.initTables(root)
+	if err := s.initTables(root); err != nil {
+		t.Fatal(err)
+	}
 
 	if got := s.node[1]; got.node != Node(root) || got.refs != 3 || got.generation != 2 {
 		t.Errorf("root = %+v", got)
@@ -113,17 +118,21 @@ func TestRestoreKeepsIDs(t *testing.T) {
 		t.Error("dropNode(6) did not forget the node")
 	}
 
-	// New nodes get free IDs and generations never used before.
+	// New nodes get free IDs and generations never used before, both when
+	// they reuse a free ID and when they go past the restored IDs.
 	seen := map[fuse.NodeID]bool{}
-	for i := 0; i < 4; i++ {
+	for i := 0; i < 6; i++ {
 		id, gen := s.saveNode(uint64(100+i), &testNode{fmt.Sprint("new", i)})
 		if id == 1 || id == 3 || seen[id] {
 			t.Errorf("new node got ID %d, which is in use", id)
 		}
 		seen[id] = true
-		if id <= 6 && gen <= 5 {
-			t.Errorf("reused ID %d got old generation %d", id, gen)
+		if gen <= 5 {
+			t.Errorf("ID %d got old generation %d", id, gen)
 		}
+	}
+	if len(s.node) != 9 {
+		t.Errorf("node table has %d slots, want 9", len(s.node))
 	}
 	if h := s.saveHandle(&testHandle{"new"}); h != 1 {
 		t.Errorf("new handle got ID %d, want the free ID 1", h)
@@ -148,6 +157,8 @@ func TestRestoreRejectsBadState(t *testing.T) {
 		{"handle ID 0", State{Handles: []HandleEntry{{ID: 0, Handle: h}}}},
 		{"duplicate handle ID", State{Handles: []HandleEntry{{ID: 1, Handle: h}, {ID: 1, Handle: h}}}},
 		{"no handle", State{Handles: []HandleEntry{{ID: 1}}}},
+		{"huge node ID", State{Nodes: []NodeEntry{{ID: ^fuse.NodeID(0), Refs: 1, Node: a}}}},
+		{"huge handle ID", State{Handles: []HandleEntry{{ID: ^fuse.HandleID(0), Handle: h}}}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -155,6 +166,43 @@ func TestRestoreRejectsBadState(t *testing.T) {
 				t.Error("Restore accepted the state")
 			}
 		})
+	}
+}
+
+func TestRestoreRejectsRootAsOtherNode(t *testing.T) {
+	root := &testNode{"root"}
+	s := New(nil, nil)
+	if err := s.Restore(State{Nodes: []NodeEntry{{ID: 2, Refs: 1, Node: root}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.initTables(root); err == nil {
+		t.Error("initTables accepted the root node under another ID")
+	}
+}
+
+func TestRestoreAfterServeFails(t *testing.T) {
+	s := New(nil, nil)
+	if err := s.initTables(&testNode{"root"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Restore(State{}); err == nil {
+		t.Error("Restore succeeded on a server that has started")
+	}
+}
+
+func TestRestoreCopiesState(t *testing.T) {
+	a := &testNode{"a"}
+	nodes := []NodeEntry{{ID: 2, Refs: 1, Node: a}}
+	s := New(nil, nil)
+	if err := s.Restore(State{Nodes: nodes}); err != nil {
+		t.Fatal(err)
+	}
+	nodes[0].ID = 0
+	if err := s.initTables(&testNode{"root"}); err != nil {
+		t.Fatal(err)
+	}
+	if s.node[2] == nil || s.node[2].node != Node(a) {
+		t.Error("a change to the caller's slice reached the server")
 	}
 }
 
@@ -177,6 +225,21 @@ func (liveDir) Lookup(ctx context.Context, name string) (Node, error) {
 	return nil, syscall.ENOENT
 }
 
+// isMounted reports whether dir is a mount point.
+func isMounted(dir string) bool {
+	data, err := os.ReadFile("/proc/self/mountinfo")
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) > 4 && fields[4] == dir {
+			return true
+		}
+	}
+	return false
+}
+
 // TestAdoptedMountAnswers mounts a file system, leaves the Conn from Mount
 // unserved, and serves a duplicate of its descriptor through Adopt. The
 // kernel accepts answers on the adopted descriptor without a second INIT.
@@ -193,6 +256,15 @@ func TestAdoptedMountAnswers(t *testing.T) {
 		t.Skipf("cannot mount: %v", err)
 	}
 	defer mounted.Close()
+	t.Cleanup(func() {
+		// The test unmounts on success, so this normally finds nothing. A
+		// lazy unmount also works while a stuck stat holds the mount busy.
+		if isMounted(dir) {
+			if out, err := exec.Command("fusermount", "-u", "-z", dir).CombinedOutput(); err != nil {
+				t.Errorf("cleanup unmount: %v: %s", err, out)
+			}
+		}
+	})
 
 	fd, err := syscall.Dup(int(mounted.File().Fd()))
 	if err != nil {
@@ -218,7 +290,7 @@ func TestAdoptedMountAnswers(t *testing.T) {
 			t.Errorf("stat through the adopted descriptor: %v", err)
 		}
 	case <-time.After(30 * time.Second):
-		t.Error("stat through the adopted descriptor did not return")
+		t.Fatal("stat through the adopted descriptor did not return")
 	}
 
 	if err := fuse.Unmount(dir); err != nil {

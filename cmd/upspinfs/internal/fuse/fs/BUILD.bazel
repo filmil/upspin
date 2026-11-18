@@ -16,7 +16,10 @@ go_library(
 
 go_test(
     name = "fs_test",
-    srcs = ["restore_test.go"],
+    srcs = [
+        "restart_test.go",
+        "restore_test.go",
+    ],
     embed = [":fs"],
     # TestAdoptedMountAnswers mounts a real FUSE file system.
     tags = ["no-sandbox"],
