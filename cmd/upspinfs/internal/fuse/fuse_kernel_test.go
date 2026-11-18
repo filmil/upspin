@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/presotto/fuse"
+	"upspin.io/cmd/upspinfs/internal/fuse"
 )
 
 func TestOpenFlagsAccmodeMaskReadWrite(t *testing.T) {

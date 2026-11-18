@@ -1,6 +1,6 @@
 // FUSE service loop, for servers that wish to use it.
 
-package fs // import "github.com/presotto/fuse/fs"
+package fs // import "upspin.io/cmd/upspinfs/internal/fuse/fs"
 
 import (
 	"bytes"
@@ -17,8 +17,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/presotto/fuse"
-	"github.com/presotto/fuse/fuseutil"
+	"upspin.io/cmd/upspinfs/internal/fuse"
+	"upspin.io/cmd/upspinfs/internal/fuse/fuseutil"
 )
 
 const (
@@ -1389,8 +1389,6 @@ func (c *Server) handleRequest(ctx context.Context, node Node, snode *serveNode,
 				return ENOSYS
 		*/
 	}
-
-	panic("not reached")
 }
 
 func (c *Server) saveLookup(ctx context.Context, s *fuse.LookupResponse, snode *serveNode, elem string, n2 Node) error {

@@ -1,0 +1,44 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "fuse",
+    srcs = [
+        "buffer.go",
+        "debug.go",
+        "error_darwin.go",
+        "error_freebsd.go",
+        "error_linux.go",
+        "error_std.go",
+        "fuse.go",
+        "fuse_darwin.go",
+        "fuse_freebsd.go",
+        "fuse_kernel.go",
+        "fuse_kernel_darwin.go",
+        "fuse_kernel_freebsd.go",
+        "fuse_kernel_linux.go",
+        "fuse_kernel_std.go",
+        "fuse_linux.go",
+        "mount.go",
+        "mount_darwin.go",
+        "mount_freebsd.go",
+        "mount_linux.go",
+        "newmount_darwin.go",
+        "oldmount_darwin.go",
+        "options.go",
+        "options_darwin.go",
+        "options_freebsd.go",
+        "options_linux.go",
+        "protocol.go",
+        "unmount.go",
+        "unmount_linux.go",
+        "unmount_std.go",
+    ],
+    importpath = "upspin.io/cmd/upspinfs/internal/fuse",
+    visibility = ["//cmd/upspinfs:__subpackages__"],
+)
+
+go_test(
+    name = "fuse_test",
+    srcs = ["fuse_kernel_test.go"],
+    deps = [":fuse"],
+)
