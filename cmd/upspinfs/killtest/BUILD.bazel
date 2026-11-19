@@ -1,0 +1,29 @@
+load("@rules_go//go:def.bzl", "go_test")
+
+go_test(
+    name = "killtest_test",
+    srcs = ["kill_test.go"],
+    data = [
+        "//cmd/cacheserver",
+        "//cmd/dirserver",
+        "//cmd/keyserver",
+        "//cmd/storeserver",
+        "//cmd/upspin",
+        "//cmd/upspinfs",
+    ],
+    # Needs /dev/fuse and fusermount, starts real Upspin servers, and kills
+    # processes: run by hand on a machine with FUSE, not in CI.
+    tags = [
+        "manual",
+        "no-sandbox",
+    ],
+    deps = select({
+        "@rules_go//go/platform:android": [
+            "//upbox",
+        ],
+        "@rules_go//go/platform:linux": [
+            "//upbox",
+        ],
+        "//conditions:default": [],
+    }),
+)

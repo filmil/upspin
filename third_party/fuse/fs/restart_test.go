@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/binary"
 	"os"
+	"reflect"
 	"sync"
 	"syscall"
 	"testing"
@@ -288,5 +289,51 @@ func TestServeAfterRestart(t *testing.T) {
 	kernel.close()
 	if err := <-done; err != nil {
 		t.Errorf("second Serve: %v", err)
+	}
+}
+
+// TestAbortLostRequests checks that a server configured with AbortLost
+// answers the IDs below its first request with EIO before it serves.
+func TestAbortLostRequests(t *testing.T) {
+	conn, kernel := newFakeConn(t)
+	defer conn.Close()
+	filesys := &restartFS{nodes: map[string]*restartNode{}}
+	server := New(conn, &Config{AbortLost: 3})
+	done := make(chan error, 1)
+	go func() { done <- server.Serve(filesys) }()
+
+	// The kernel's counter is at 10, as if an earlier server had read
+	// requests 2 to 8.
+	kernel.unique = 8
+	unique := kernel.send(opGetattr, 1, make([]byte, 16))
+	if unique != 10 {
+		t.Fatalf("request ID %d, want 10", unique)
+	}
+	buf := make([]byte, 1<<16)
+	var aborted []uint64
+	for {
+		n, err := syscall.Read(kernel.fd, buf)
+		if err != nil {
+			t.Fatal(err)
+		}
+		id := binary.NativeEndian.Uint64(buf[8:])
+		if id == unique {
+			break
+		}
+		if errno := -int32(binary.NativeEndian.Uint32(buf[4:])); syscall.Errno(errno) != syscall.EIO || n != outHeaderSize {
+			t.Errorf("abort of %d: errno %d, %d bytes", id, errno, n)
+		}
+		aborted = append(aborted, id)
+	}
+	if want := []uint64{8, 6, 4}; !reflect.DeepEqual(aborted, want) {
+		t.Errorf("aborted %v, want %v", aborted, want)
+	}
+	// Later requests are served without more aborts.
+	if errno, _ := kernel.call(opGetattr, 1, make([]byte, 16)); errno != 0 {
+		t.Errorf("second request: %v", errno)
+	}
+	kernel.close()
+	if err := <-done; err != nil {
+		t.Error(err)
 	}
 }

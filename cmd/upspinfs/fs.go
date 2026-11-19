@@ -1154,21 +1154,7 @@ func do(cfg upspin.Config, mountpoint string, cacheDir string, cacheSize int64, 
 	f := newUpspinFS(cfg, mountpoint, cacheDir, cacheSize)
 	f.cache.removeAllExcept(nil)
 
-	opts := []fuse.MountOption{
-		fuse.FSName("upspin"),
-		fuse.Subtype("fs"),
-		fuse.LocalVolume(),
-		fuse.VolumeName(fmt.Sprintf("%s-%s", f.config.DirEndpoint().NetAddr, f.config.UserName())),
-		fuse.DaemonTimeout("240"),
-		//fuse.OSXDebugFuseKernel(),
-		//fuse.NoAppleDouble(),
-		//fuse.NoAppleXattr(),
-	}
-	if allowOther {
-		opts = append(opts, fuse.AllowOther())
-	}
-
-	c, err := fuse.Mount(mountpoint, opts...)
+	c, err := fuse.Mount(mountpoint, mountOptions(cfg, allowOther)...)
 	if err == fuse.ErrOSXFUSENotFound {
 		log.Fatal("FUSE for macOS is not installed. See https://osxfuse.github.io/")
 	}
@@ -1191,19 +1177,60 @@ func do(cfg upspin.Config, mountpoint string, cacheDir string, cacheSize int64, 
 		fuse.Unmount(mountpoint)
 	})
 
-	// Serve in a go routine.
+	done := serve(f, c, nil)
+	preload(cfg, mountpoint)
+	return done
+}
+
+// mountOptions returns the FUSE mount options of upspinfs.
+func mountOptions(cfg upspin.Config, allowOther bool) []fuse.MountOption {
+	opts := []fuse.MountOption{
+		fuse.FSName("upspin"),
+		fuse.Subtype("fs"),
+		fuse.LocalVolume(),
+		fuse.VolumeName(fmt.Sprintf("%s-%s", cfg.DirEndpoint().NetAddr, cfg.UserName())),
+		fuse.DaemonTimeout("240"),
+		//fuse.OSXDebugFuseKernel(),
+		//fuse.NoAppleDouble(),
+		//fuse.NoAppleXattr(),
+	}
+	if allowOther {
+		opts = append(opts, fuse.AllowOther())
+	}
+	return opts
+}
+
+// abortLostWindow is how many requests below its first one a server that
+// adopted a mount answers with EIO. See fs.Config.AbortLost.
+const abortLostWindow = 4096
+
+// serve serves the connection c in a goroutine, from the tables in st if
+// they are not nil. The returned channel closes when the mount ends.
+func serve(f *upspinFS, c *fuse.Conn, st *fs.State) chan bool {
+	cfg := &fs.Config{Observer: f}
+	if st != nil {
+		cfg.AbortLost = abortLostWindow
+	}
+	f.server = fs.New(c, cfg)
+	if st != nil {
+		if err := f.server.Restore(*st); err != nil {
+			log.Fatalf("upspinfs: restoring the FUSE tables: %v", err)
+		}
+	}
 	done := make(chan bool)
 	go func() {
-		f.server = fs.New(c, &fs.Config{Observer: f})
 		err := f.server.Serve(f)
 		if err != nil {
 			log.Debug.Fatal(err)
 		}
 		close(done)
 	}()
+	return done
+}
 
-	// At this point the file system is mounted.
-	// Preload the user's root.
+// preload looks up the user's root, and its snapshot tree, so that they
+// are ready when the user first looks.
+func preload(cfg upspin.Config, mountpoint string) {
 	go func(owner upspin.UserName) {
 		os.Stat(ospath.Join(mountpoint, string(owner)))
 		if name, suffix, domain, err := user.Parse(owner); suffix == "" && err == nil {
@@ -1211,6 +1238,53 @@ func do(cfg upspin.Config, mountpoint string, cacheDir string, cacheSize int64, 
 			os.Stat(ospath.Join(mountpoint, string(snapUser)))
 		}
 	}(cfg.UserName())
+}
+
+// doAdopted serves a mount that a supervisor holds: it adopts the /dev/fuse
+// descriptor fuseFD, whose INIT the supervisor answered with protocol proto,
+// and keeps its tables in the journal journalFD, if it is not negative. When
+// the journal holds the tables of a server that died, it restores them, and
+// answers the requests that server never answered with EIO.
+func doAdopted(cfg upspin.Config, mountpoint, cacheDir string, cacheSize int64, fuseFD int, proto string, journalFD int) chan bool {
+	if log.GetLevel() == "debug" {
+		fuse.Debug = debug
+	}
+	var p fuse.Protocol
+	if _, err := fmt.Sscanf(proto, "%d.%d", &p.Major, &p.Minor); err != nil {
+		log.Fatalf("upspinfs: bad -fuse_proto %q: %v", proto, err)
+	}
+	c, err := fuse.Adopt(os.NewFile(uintptr(fuseFD), "/dev/fuse"), p)
+	if err != nil {
+		log.Fatalf("upspinfs: adopting the FUSE descriptor: %v", err)
+	}
+
+	f := newUpspinFS(cfg, mountpoint, cacheDir, cacheSize)
+	var tables *fs.State
+	if journalFD >= 0 {
+		j, st, err := openJournal(os.NewFile(uintptr(journalFD), "journal"))
+		if err != nil {
+			log.Error.Printf("upspinfs: journal: %v; open files will not survive a restart", err)
+		} else {
+			f.journal = j
+			if len(st.nodes) > 0 {
+				t := f.restore(st)
+				tables = &t
+			}
+		}
+	}
+	if tables == nil {
+		f.cache.removeAllExcept(nil)
+	}
+
+	// The supervisor unmounts; a child only stops serving.
+	done := serve(f, c, tables)
+	if tables != nil {
+		log.Info.Printf("upspinfs: took over the mount with %d nodes and %d open files", len(tables.Nodes), len(tables.Handles))
+		go f.finishRestoredWrites()
+	}
+	// The supervisor's probe makes the first request, which tells the
+	// server which requests were lost. The server must not look into its
+	// own mount: a process that waits for its own answer cannot exit.
 	return done
 }
 

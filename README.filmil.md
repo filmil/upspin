@@ -118,6 +118,55 @@ and the characters `+`, `/`, `=` and `-`.
 Only the files change: the public key that goes over the wire, to the
 keyserver and in directory entries, keeps its original form.
 
+## upspinfs keeps its mount when its process dies
+
+Run upspinfs with `-supervise` to keep the mount alive when the server
+process crashes or is killed.
+Without it, every access to the mount fails with "Transport endpoint is
+not connected" until someone unmounts and starts upspinfs again.
+This works on Linux only.
+
+```
+upspinfs -supervise -hang_timeout=1m /path/to/mount
+```
+
+With `-supervise`, upspinfs runs as two processes.
+
+* The supervisor mounts the file system and keeps the `/dev/fuse`
+  descriptor, so the mount lives as long as the supervisor does.
+  It starts the server as a child process, hands it the descriptor, and
+  starts a new one when the child dies, after 1 to 30 seconds.
+  It unmounts on SIGTERM or SIGINT.
+* The server keeps its FUSE tables in a journal: the node and handle IDs
+  the kernel holds, and the cache files of files written but not yet put
+  to the store, with their encryption keys.
+  The journal is a memory file (memfd) that the supervisor holds, so it
+  never reaches a disk and ends with the mount.
+* A new server restores the tables, so the kernel's node IDs and open
+  files keep working.
+  It puts the restored unsaved writes to the store at once, because a
+  release in flight at the crash is lost.
+
+Requests that the dead server had read and not answered fail with `EIO`.
+The kernel would otherwise wait for them forever; Linux 6.9 and later could
+resend them instead (`FUSE_NOTIFY_RESEND`), which upspinfs does not use yet.
+The new server answers the 4096 request IDs below its first request with
+`EIO`; the kernel ignores the ones it is not waiting for.
+
+`-hang_timeout`, off by default, also restarts a server that lives but stops
+answering.
+The supervisor looks up a name that the server answers from memory, and
+restarts the server when that lookup gets no answer in time while requests
+are waiting.
+
+`cmd/upspinfs/killtest` kills the server in the middle of reads, writes and
+concurrent requests, and stops it with SIGSTOP to test `-hang_timeout`.
+It needs `/dev/fuse` and `fusermount`, starts real Upspin servers, and is
+tagged manual:
+`bazel test //cmd/upspinfs/killtest:killtest_test`.
+
+Details: https://github.com/filmil/upspin/issues/106.
+
 ## The Bazel module: filmil_upspin
 
 The Bazel module is named `filmil_upspin`, because this is a spin-off and
