@@ -1171,6 +1171,19 @@ func (c *Conn) writeToKernel(msg []byte) error {
 	return err
 }
 
+// AbortRequest answers request id with err, although this Conn never read
+// it. A server that adopts a mount uses it for the requests that the dead
+// server had read and not answered: the kernel would wait for those forever.
+// The kernel rejects an ID it is not waiting for, and AbortRequest then
+// returns ENOENT.
+func (c *Conn) AbortRequest(id RequestID, err error) error {
+	buf := newBuffer(0)
+	hOut := (*outHeader)(unsafe.Pointer(&buf[0]))
+	hOut.Unique = uint64(id)
+	hOut.Error = -int32(ToErrno(err))
+	return c.writeToKernel(buf)
+}
+
 func (c *Conn) respond(msg []byte) {
 	if err := c.writeToKernel(msg); err != nil {
 		Debug(bugKernelWriteError{

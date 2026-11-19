@@ -328,6 +328,17 @@ type Config struct {
 	// handle tables. See TableObserver.
 	Observer TableObserver
 
+	// AbortLost, if positive, makes a server that adopted a mount answer
+	// with EIO the requests an earlier server read and never answered.
+	// Request IDs grow by 2 per request, so when the first request read
+	// has ID u, the server aborts the IDs u-2, u-4, and so on, AbortLost of
+	// them. The kernel only accepts answers to requests that a server has
+	// read and not answered, so the other IDs do no harm.
+	//
+	// Linux 6.9 and later can resend such requests instead
+	// (FUSE_NOTIFY_RESEND), which this library does not use.
+	AbortLost int
+
 	// Function to send debug log messages to. If nil, use fuse.Debug.
 	// Note that changing this or fuse.Debug may not affect existing
 	// calls to Serve.
@@ -359,6 +370,7 @@ func New(conn *fuse.Conn, config *Config) *Server {
 		s.debug = config.Debug
 		s.context = config.WithContext
 		s.observer = config.Observer
+		s.abortLost = config.AbortLost
 	}
 	if s.debug == nil {
 		s.debug = fuse.Debug
@@ -508,6 +520,9 @@ type Server struct {
 	// observer may be nil. It is called with meta held.
 	observer TableObserver
 
+	// abortLost is Config.AbortLost; Serve sets it to 0 once done.
+	abortLost int
+
 	// restored is set by Restore and used once, by Serve.
 	restored *State
 
@@ -555,6 +570,9 @@ func (s *Server) Serve(fs FS) error {
 				break
 			}
 			return err
+		}
+		if s.abortLost > 0 {
+			s.abortLostRequests(req.Hdr().ID)
 		}
 
 		s.wg.Add(1)
@@ -637,6 +655,36 @@ func (s *Server) initTables(root Node) error {
 		}
 	}
 	return nil
+}
+
+// lostRequestIDStep is the distance between the IDs of consecutive requests.
+// The kernel keeps the lowest bit for interrupts.
+const lostRequestIDStep = 2
+
+// abortLostRequests answers with EIO the requests below first that an
+// earlier server read and never answered. See Config.AbortLost.
+func (s *Server) abortLostRequests(first fuse.RequestID) {
+	aborted := 0
+	for i := 1; i <= s.abortLost; i++ {
+		step := fuse.RequestID(i * lostRequestIDStep)
+		if step >= first {
+			break
+		}
+		if err := s.conn.AbortRequest(first-step, syscall.EIO); err == nil {
+			aborted++
+		}
+	}
+	s.abortLost = 0
+	s.debug(abortedRequests{First: first, Aborted: aborted})
+}
+
+type abortedRequests struct {
+	First   fuse.RequestID
+	Aborted int
+}
+
+func (a abortedRequests) String() string {
+	return fmt.Sprintf("aborted %d requests lost before request %v", a.Aborted, a.First)
 }
 
 // Serve serves a FUSE connection with the default settings. See
