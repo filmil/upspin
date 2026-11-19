@@ -59,6 +59,8 @@ const (
 	recPath    byte = 5 // id, path
 	recMapped  byte = 6 // id, mapped
 	recGen     byte = 7 // generation
+	recCache   byte = 8 // node id, sequence, cache file name, key
+	recNoCache byte = 9 // node id
 )
 
 var crcTable = crc32.MakeTable(crc32.Castagnoli)
@@ -77,10 +79,19 @@ type journalHandle struct {
 	flags uint32 // fuse.OpenFlags.
 }
 
+// journalCache is the saved state of a node's cache file that holds writes
+// not yet put to the store.
+type journalCache struct {
+	seq   int64  // The sequence the write back is conditioned on.
+	fname string // Cache file name.
+	key   []byte // Encryption key of the cache file.
+}
+
 // journalState is the live content of a journal.
 type journalState struct {
 	nodes   map[fuse.NodeID]journalNode
 	handles map[fuse.HandleID]journalHandle
+	caches  map[fuse.NodeID]journalCache
 	maxGen  uint64 // Highest node generation ever recorded.
 }
 
@@ -88,6 +99,7 @@ func newJournalState() journalState {
 	return journalState{
 		nodes:   make(map[fuse.NodeID]journalNode),
 		handles: make(map[fuse.HandleID]journalHandle),
+		caches:  make(map[fuse.NodeID]journalCache),
 	}
 }
 
@@ -185,6 +197,10 @@ func (j *journal) copyState() journalState {
 	for id, h := range j.live.handles {
 		st.handles[id] = h
 	}
+	for id, c := range j.live.caches {
+		c.key = append([]byte(nil), c.key...)
+		st.caches[id] = c
+	}
 	st.maxGen = j.live.maxGen
 	return st
 }
@@ -224,6 +240,25 @@ func (j *journal) setPath(id fuse.NodeID, path string) {
 	b := encodeIDs(recPath, uint64(id))
 	b = binary.AppendUvarint(b, uint64(len(path)))
 	j.append(append(b, path...))
+}
+
+// putCache records the cache file of a node with writes not yet put.
+func (j *journal) putCache(id fuse.NodeID, c journalCache) {
+	j.append(encodeCache(id, c))
+}
+
+// dropCache records that a node has no such cache file any more.
+func (j *journal) dropCache(id fuse.NodeID) {
+	j.append(encodeIDs(recNoCache, uint64(id)))
+}
+
+func encodeCache(id fuse.NodeID, c journalCache) []byte {
+	b := encodeIDs(recCache, uint64(id))
+	b = binary.AppendVarint(b, c.seq)
+	b = binary.AppendUvarint(b, uint64(len(c.fname)))
+	b = append(b, c.fname...)
+	b = binary.AppendUvarint(b, uint64(len(c.key)))
+	return append(b, c.key...)
 }
 
 // setMapped records whether lookups of a node's path find the node.
@@ -306,7 +341,7 @@ func (j *journal) fail(err error) {
 
 // liveRecords is the number of records a snapshot of the live state needs.
 func (j *journal) liveRecords() int {
-	return 1 + len(j.live.nodes) + len(j.live.handles)
+	return 1 + len(j.live.nodes) + len(j.live.handles) + len(j.live.caches)
 }
 
 // compact writes a snapshot of the live state, makes it the start of the
@@ -347,6 +382,15 @@ func (j *journal) writeSnapshot() int64 {
 	for _, id := range hids {
 		h := j.live.handles[id]
 		buf = appendRecord(buf, encodeIDs(recHandle, uint64(id), uint64(h.node), uint64(h.flags)))
+		n++
+	}
+	cids := make([]fuse.NodeID, 0, len(j.live.caches))
+	for id := range j.live.caches {
+		cids = append(cids, id)
+	}
+	sort.Slice(cids, func(a, b int) bool { return cids[a] < cids[b] })
+	for _, id := range cids {
+		buf = appendRecord(buf, encodeCache(id, j.live.caches[id]))
 		n++
 	}
 	before := j.records
@@ -393,7 +437,10 @@ func applyRecord(st *journalState, payload []byte) error {
 		}
 	case recForget:
 		id := fuse.NodeID(d.uvarint())
-		apply = func() { delete(st.nodes, id) }
+		apply = func() {
+			delete(st.nodes, id)
+			delete(st.caches, id)
+		}
 	case recHandle:
 		id := fuse.HandleID(d.uvarint())
 		h := journalHandle{node: fuse.NodeID(d.uvarint()), flags: uint32(d.uvarint())}
@@ -419,6 +466,18 @@ func applyRecord(st *journalState, payload []byte) error {
 				st.nodes[id] = n
 			}
 		}
+	case recCache:
+		id := fuse.NodeID(d.uvarint())
+		c := journalCache{seq: d.varint(), fname: d.str()}
+		c.key = []byte(d.str())
+		apply = func() {
+			if _, ok := st.nodes[id]; ok {
+				st.caches[id] = c
+			}
+		}
+	case recNoCache:
+		id := fuse.NodeID(d.uvarint())
+		apply = func() { delete(st.caches, id) }
 	case recGen:
 		gen := d.uvarint()
 		apply = func() {
@@ -449,6 +508,19 @@ func (d *decoder) uvarint() uint64 {
 		return 0
 	}
 	v, n := binary.Uvarint(d.b)
+	if n <= 0 {
+		d.err = errors.New("journal: bad number")
+		return 0
+	}
+	d.b = d.b[n:]
+	return v
+}
+
+func (d *decoder) varint() int64 {
+	if d.err != nil {
+		return 0
+	}
+	v, n := binary.Varint(d.b)
 	if n <= 0 {
 		d.err = errors.New("journal: bad number")
 		return 0

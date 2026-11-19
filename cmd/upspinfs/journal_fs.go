@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"upspin.io/cmd/upspinfs/internal/ose"
 	"upspin.io/errors"
 	"upspin.io/log"
 	"upspin.io/path"
@@ -35,6 +36,7 @@ func (f *upspinFS) NodeSaved(e fs.NodeEntry) {
 		// Only after a missed Forget; the ID now names n.
 		old.kernelID = 0
 	}
+	isNew := n.kernelID != e.ID
 	n.kernelID = e.ID
 	f.byID[e.ID] = n
 	if f.journal == nil {
@@ -48,6 +50,10 @@ func (f *upspinFS) NodeSaved(e fs.NodeEntry) {
 		path:   n.jpath,
 		mapped: n.jmapped,
 	})
+	if isNew && n.jcache != nil {
+		// The file was created before the kernel learned its ID.
+		f.journal.putCache(e.ID, *n.jcache)
+	}
 	f.checkJournal()
 }
 
@@ -118,6 +124,26 @@ func (f *upspinFS) setPath(n *node, p upspin.PathName) {
 	}
 }
 
+// setCache records the cache file of n that holds writes not yet put, or
+// that it has none (c is nil). Called with n locked.
+func (f *upspinFS) setCache(n *node, c *journalCache) {
+	f.jmu.Lock()
+	defer f.jmu.Unlock()
+	if c == nil && n.jcache == nil {
+		return
+	}
+	n.jcache = c
+	if f.journal == nil || n.kernelID == 0 {
+		return
+	}
+	if c == nil {
+		f.journal.dropCache(n.kernelID)
+	} else {
+		f.journal.putCache(n.kernelID, *c)
+	}
+	f.checkJournal()
+}
+
 // checkJournal stops journaling after the first write error. The mount keeps
 // working; only a later restart loses the tables. Called with f.jmu locked.
 func (f *upspinFS) checkJournal() {
@@ -132,8 +158,8 @@ func (f *upspinFS) checkJournal() {
 // path is stale: its first refresh asks the directory server for its
 // attributes. A node that had lost its path answers ENOENT.
 //
-// Open file handles are not restored yet, so the kernel's handles from the
-// earlier process stop working. They are released in the journal.
+// Open file handles are restored, and so are cache files with writes that
+// were not yet put. Call finishRestoredWrites once the server runs.
 func (f *upspinFS) restore(st journalState) fs.State {
 	out := fs.State{NodeGeneration: st.maxGen}
 	f.Lock()
@@ -177,18 +203,91 @@ func (f *upspinFS) restore(st journalState) fs.State {
 			f.userDirs[string(n.user)] = true
 		}
 	}
-	if len(st.handles) > 0 {
-		log.Info.Printf("upspinfs: %d open files of the earlier process are lost", len(st.handles))
-		if f.journal != nil {
-			for id := range st.handles {
+	keep := make(map[string]bool)
+	cids := make([]fuse.NodeID, 0, len(st.caches))
+	for id := range st.caches {
+		cids = append(cids, id)
+	}
+	sort.Slice(cids, func(a, b int) bool { return cids[a] < cids[b] })
+	for _, id := range cids {
+		if f.restoreCache(id, st.caches[id]) {
+			keep[st.caches[id].fname] = true
+		}
+	}
+	f.cache.removeAllExcept(keep)
+
+	hids := make([]fuse.HandleID, 0, len(st.handles))
+	for id := range st.handles {
+		hids = append(hids, id)
+	}
+	sort.Slice(hids, func(a, b int) bool { return hids[a] < hids[b] })
+	for _, id := range hids {
+		jh := st.handles[id]
+		n := f.byID[jh.node]
+		if n == nil || n == f.root {
+			log.Error.Printf("upspinfs: handle %d of the earlier process names unknown node %d", id, jh.node)
+			if f.journal != nil {
 				f.journal.releaseHandle(id)
 			}
+			continue
 		}
+		// The cache file opens on first use; see ensureCache.
+		h := allocHandle(n)
+		h.flags = fuse.OpenFlags(jh.flags)
+		out.Handles = append(out.Handles, fs.HandleEntry{ID: id, Handle: h})
 	}
 	if f.journal != nil {
 		f.checkJournal()
 	}
 	return out
+}
+
+// restoreCache reopens the cache file of node id, which holds writes the
+// earlier process did not put. Called with f and f.jmu locked.
+func (f *upspinFS) restoreCache(id fuse.NodeID, c journalCache) bool {
+	n := f.byID[id]
+	if n == nil || n.t != otherNode {
+		return false
+	}
+	file, err := ose.OpenFileWithKey(c.fname, os.O_RDWR, cachedFilePerms, c.key)
+	if err == nil {
+		var info os.FileInfo
+		if info, err = file.Stat(); err == nil {
+			n.cf = &cachedFile{c: f.cache, n: n, fname: c.fname, dirty: true, file: file, size: info.Size()}
+			n.seq = c.seq
+			n.jcache = &c
+			// The cache file is newer than anything in the store.
+			n.stale = false
+			n.attr.Size = uint64(info.Size())
+			n.attr.Blocks = (n.attr.Size + 511) / 512
+			f.restoredWrites = append(f.restoredWrites, n)
+			return true
+		}
+		file.Close()
+	}
+	log.Error.Printf("upspinfs: unsaved writes to %q are lost: %v", n.uname, err)
+	if f.journal != nil {
+		f.journal.dropCache(id)
+	}
+	return false
+}
+
+// finishRestoredWrites puts the restored cache files with unsaved writes. The
+// kernel may never release their handles: a release in flight at the crash is
+// lost. Call it after the server started, since a put invalidates the
+// kernel's caches.
+func (f *upspinFS) finishRestoredWrites() {
+	f.Lock()
+	nodes := f.restoredWrites
+	f.restoredWrites = nil
+	f.Unlock()
+	for _, n := range nodes {
+		n.Lock()
+		if err := n.cf.writeback(n); err != nil {
+			log.Error.Printf("upspinfs: writing back %q after a restart: %v", n.uname, err)
+		}
+		n.Unlock()
+	}
 }
 
 // restoredNode makes a node from its journal entry. Called with f and f.jmu
