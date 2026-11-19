@@ -67,6 +67,11 @@ type upspinFS struct {
 	enoentMap  map[upspin.PathName]time.Time // A map of non-existent names.
 	server     *fs.Server                    // The Bazil server interface.
 	watched    *watchedRoots                 // Directory servers being watched.
+
+	// jmu protects journal and the journal fields of every node. Lock
+	// order: the Server table lock, then f's lock, then jmu.
+	jmu     sync.Mutex
+	journal *journal // Nil if the tables are not kept.
 }
 
 type nodeType uint8
@@ -99,6 +104,16 @@ type node struct {
 
 	refreshTime  time.Time // The next refresh of the node info.
 	doNotRefresh bool      // True if we should not try refreshing.
+
+	// stale is set on a node restored from a journal. Its attributes are
+	// not known until the next refresh asks the directory server.
+	stale bool
+
+	// Journal fields, protected by f.jmu. See journal_fs.go.
+	kernelID fuse.NodeID // The kernel's ID for this node; 0 if none yet.
+	jpath    string      // The path name the journal knows.
+	jmode    uint32      // The mode the node was created with.
+	jmapped  bool        // Whether f.nodeMap maps jpath to this node.
 }
 
 func (n *node) String() string {
@@ -193,6 +208,8 @@ func (f *upspinFS) allocNode(parent *node, name string, mode os.FileMode, size u
 		}
 	}
 	n.handles = make(map[*handle]bool)
+	n.jpath = string(n.uname)
+	n.jmode = uint32(mode)
 	f.Lock()
 	f.lastID++
 	n.id = f.lastID
@@ -669,12 +686,16 @@ func (n *node) exists() {
 	f := n.f
 	f.Lock()
 	n.deleted = false
-	_, ok := f.nodeMap[n.uname]
+	prev, ok := f.nodeMap[n.uname]
 	delete(f.enoentMap, n.uname)
 	f.nodeMap[n.uname] = n
 	if !ok {
 		f.watched.add(n.uname)
 	}
+	if ok && prev != n {
+		f.setMapped(prev, false)
+	}
+	f.setMapped(n, true)
 	f.Unlock()
 }
 
@@ -688,6 +709,7 @@ func (f *upspinFS) doesNotExist(uname upspin.PathName) *node {
 	if ok {
 		delete(f.nodeMap, uname)
 		f.watched.remove(uname)
+		f.setMapped(fn, false)
 	}
 	f.Unlock()
 	return fn
@@ -704,10 +726,11 @@ func (f *upspinFS) enoentInvalidTime(uname upspin.PathName) time.Time {
 // removeMapping removes the pathname to node mapping.
 func (f *upspinFS) removeMapping(uname upspin.PathName) {
 	f.Lock()
-	_, ok := f.nodeMap[uname]
+	n, ok := f.nodeMap[uname]
 	if ok {
 		delete(f.nodeMap, uname)
 		f.watched.remove(uname)
+		f.setMapped(n, false)
 	}
 	f.Unlock()
 }
@@ -952,6 +975,7 @@ func (n *node) Rename(ctx gContext.Context, req *fuse.RenameRequest, newDir fs.N
 		// on close.
 		delete(f.nodeMap, newPath)
 		f.watched.remove(newPath)
+		f.setMapped(newn, false)
 		newn.noWB = true
 	}
 	delete(f.enoentMap, newPath)
@@ -962,6 +986,7 @@ func (n *node) Rename(ctx gContext.Context, req *fuse.RenameRequest, newDir fs.N
 		oldn.uname = newPath
 		oldn.user = nn.user
 		oldn.seq = de.Sequence
+		f.setPath(oldn, newPath)
 		f.nodeMap[newPath] = oldn
 		f.watched.add(newPath)
 	}
@@ -1125,7 +1150,7 @@ func do(cfg upspin.Config, mountpoint string, cacheDir string, cacheSize int64, 
 	// Serve in a go routine.
 	done := make(chan bool)
 	go func() {
-		f.server = fs.New(c, nil)
+		f.server = fs.New(c, &fs.Config{Observer: f})
 		err := f.server.Serve(f)
 		if err != nil {
 			log.Debug.Fatal(err)

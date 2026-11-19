@@ -7,6 +7,10 @@ go_library(
         "doc.go",
         "errors_unix.go",
         "fs.go",
+        "journal.go",
+        "journal_fs.go",
+        "journal_punch_linux.go",
+        "journal_punch_other.go",
         "main.go",
         "main_windows.go",
         "watch.go",
@@ -431,7 +435,11 @@ go_binary(
 
 go_test(
     name = "upspinfs_test",
-    srcs = ["upspinfs_test.go"],
+    srcs = [
+        "journal_test.go",
+        "restart_test.go",
+        "upspinfs_test.go",
+    ],
     data = ["//key/testdata"],
     embed = [":upspinfs_lib"],
     # TestSymlink fails now and then under load (Lstat size mismatch on
@@ -451,6 +459,7 @@ go_test(
             "//store/inprocess",
             "//test/testutil",
             "//third_party/fuse",
+            "//third_party/fuse/fs",
             "//upspin",
         ],
         "@rules_go//go/platform:android": [
@@ -465,6 +474,7 @@ go_test(
             "//store/inprocess",
             "//test/testutil",
             "//third_party/fuse",
+            "//third_party/fuse/fs",
             "//upspin",
         ],
         "@rules_go//go/platform:darwin": [
@@ -479,6 +489,7 @@ go_test(
             "//store/inprocess",
             "//test/testutil",
             "//third_party/fuse",
+            "//third_party/fuse/fs",
             "//upspin",
         ],
         "@rules_go//go/platform:dragonfly": [
@@ -493,6 +504,7 @@ go_test(
             "//store/inprocess",
             "//test/testutil",
             "//third_party/fuse",
+            "//third_party/fuse/fs",
             "//upspin",
         ],
         "@rules_go//go/platform:freebsd": [
@@ -507,6 +519,7 @@ go_test(
             "//store/inprocess",
             "//test/testutil",
             "//third_party/fuse",
+            "//third_party/fuse/fs",
             "//upspin",
         ],
         "@rules_go//go/platform:illumos": [
@@ -521,6 +534,7 @@ go_test(
             "//store/inprocess",
             "//test/testutil",
             "//third_party/fuse",
+            "//third_party/fuse/fs",
             "//upspin",
         ],
         "@rules_go//go/platform:ios": [
@@ -535,6 +549,7 @@ go_test(
             "//store/inprocess",
             "//test/testutil",
             "//third_party/fuse",
+            "//third_party/fuse/fs",
             "//upspin",
         ],
         "@rules_go//go/platform:js": [
@@ -549,6 +564,7 @@ go_test(
             "//store/inprocess",
             "//test/testutil",
             "//third_party/fuse",
+            "//third_party/fuse/fs",
             "//upspin",
         ],
         "@rules_go//go/platform:linux": [
@@ -563,6 +579,7 @@ go_test(
             "//store/inprocess",
             "//test/testutil",
             "//third_party/fuse",
+            "//third_party/fuse/fs",
             "//upspin",
         ],
         "@rules_go//go/platform:netbsd": [
@@ -577,6 +594,7 @@ go_test(
             "//store/inprocess",
             "//test/testutil",
             "//third_party/fuse",
+            "//third_party/fuse/fs",
             "//upspin",
         ],
         "@rules_go//go/platform:openbsd": [
@@ -591,6 +609,7 @@ go_test(
             "//store/inprocess",
             "//test/testutil",
             "//third_party/fuse",
+            "//third_party/fuse/fs",
             "//upspin",
         ],
         "@rules_go//go/platform:osx": [
@@ -605,6 +624,7 @@ go_test(
             "//store/inprocess",
             "//test/testutil",
             "//third_party/fuse",
+            "//third_party/fuse/fs",
             "//upspin",
         ],
         "@rules_go//go/platform:plan9": [
@@ -619,6 +639,7 @@ go_test(
             "//store/inprocess",
             "//test/testutil",
             "//third_party/fuse",
+            "//third_party/fuse/fs",
             "//upspin",
         ],
         "@rules_go//go/platform:qnx": [
@@ -633,6 +654,7 @@ go_test(
             "//store/inprocess",
             "//test/testutil",
             "//third_party/fuse",
+            "//third_party/fuse/fs",
             "//upspin",
         ],
         "@rules_go//go/platform:solaris": [
@@ -647,6 +669,7 @@ go_test(
             "//store/inprocess",
             "//test/testutil",
             "//third_party/fuse",
+            "//third_party/fuse/fs",
             "//upspin",
         ],
         "//conditions:default": [],
