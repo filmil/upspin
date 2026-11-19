@@ -123,6 +123,7 @@ func openJournal(f *os.File) (*journal, journalState, error) {
 
 	var hdr [journalStartOff + 8]byte
 	if _, err := f.ReadAt(hdr[:], 0); err != nil {
+		// Includes a header shorter than the start offset.
 		return nil, journalState{}, fmt.Errorf("journal header: %w", err)
 	}
 	if string(hdr[:len(journalMagic)]) != journalMagic {
@@ -143,6 +144,9 @@ func openJournal(f *os.File) (*journal, journalState, error) {
 		j.records++
 	}
 	j.end = off
+	// A process that died after moving the start offset may not have freed
+	// the records before it.
+	_ = punchHole(f, journalHeaderSize, j.start-journalHeaderSize)
 	if off < info.Size() {
 		if err := f.Truncate(off); err != nil {
 			return nil, journalState{}, err
@@ -195,6 +199,16 @@ func (j *journal) forgetNode(id fuse.NodeID) {
 	j.append(encodeIDs(recForget, uint64(id)))
 }
 
+// liveHandle reports whether the journal holds handle id. A nil journal holds
+// none.
+func (j *journal) liveHandle(id fuse.HandleID) (journalHandle, bool) {
+	if j == nil {
+		return journalHandle{}, false
+	}
+	h, ok := j.live.handles[id]
+	return h, ok
+}
+
 // putHandle records a new handle.
 func (j *journal) putHandle(id fuse.HandleID, h journalHandle) {
 	j.append(encodeIDs(recHandle, uint64(id), uint64(h.node), uint64(h.flags)))
@@ -240,6 +254,11 @@ func encodeNode(id fuse.NodeID, n journalNode) []byte {
 
 // append applies the payload to the live state and writes it as a record.
 func (j *journal) append(payload []byte) {
+	if len(payload) > maxRecordSize {
+		// Replay would treat the record as damage and drop the rest.
+		j.fail(fmt.Errorf("journal: record of %d bytes is too large", len(payload)))
+		return
+	}
 	if err := applyRecord(&j.live, payload); err != nil {
 		// Only a bug in this file can get here.
 		panic(err)
@@ -252,16 +271,31 @@ func (j *journal) append(payload []byte) {
 
 // write appends one record to the file.
 func (j *journal) write(payload []byte) {
-	rec := make([]byte, 8, 8+len(payload))
-	binary.LittleEndian.PutUint32(rec[0:], uint32(len(payload)))
-	binary.LittleEndian.PutUint32(rec[4:], crc32.Checksum(payload, crcTable))
-	rec = append(rec, payload...)
-	if _, err := j.f.WriteAt(rec, j.end); err != nil {
+	j.writeAll(appendRecord(nil, payload), 1)
+}
+
+// appendRecord appends the framed record for payload to buf.
+func appendRecord(buf, payload []byte) []byte {
+	var hdr [8]byte
+	binary.LittleEndian.PutUint32(hdr[0:], uint32(len(payload)))
+	binary.LittleEndian.PutUint32(hdr[4:], crc32.Checksum(payload, crcTable))
+	buf = append(buf, hdr[:]...)
+	return append(buf, payload...)
+}
+
+// writeAll appends n framed records to the file in one write. After the
+// first error it writes nothing more: the records after a gap would never be
+// replayed.
+func (j *journal) writeAll(recs []byte, n int) {
+	if j.err != nil {
+		return
+	}
+	if _, err := j.f.WriteAt(recs, j.end); err != nil {
 		j.fail(err)
 		return
 	}
-	j.end += int64(len(rec))
-	j.records++
+	j.end += int64(len(recs))
+	j.records += n
 }
 
 func (j *journal) fail(err error) {
@@ -290,19 +324,20 @@ func (j *journal) compact() {
 	j.switchStart(newStart)
 }
 
-// writeSnapshot appends records that state the whole live state, and returns
-// the offset of the first one.
+// writeSnapshot appends records that state the whole live state, in one
+// write, and returns the offset of the first one.
 func (j *journal) writeSnapshot() int64 {
 	newStart := j.end
-	j.records = 0
-	j.write(encodeIDs(recGen, j.live.maxGen))
+	buf := appendRecord(nil, encodeIDs(recGen, j.live.maxGen))
+	n := 1
 	ids := make([]fuse.NodeID, 0, len(j.live.nodes))
 	for id := range j.live.nodes {
 		ids = append(ids, id)
 	}
 	sort.Slice(ids, func(a, b int) bool { return ids[a] < ids[b] })
 	for _, id := range ids {
-		j.write(encodeNode(id, j.live.nodes[id]))
+		buf = appendRecord(buf, encodeNode(id, j.live.nodes[id]))
+		n++
 	}
 	hids := make([]fuse.HandleID, 0, len(j.live.handles))
 	for id := range j.live.handles {
@@ -311,7 +346,13 @@ func (j *journal) writeSnapshot() int64 {
 	sort.Slice(hids, func(a, b int) bool { return hids[a] < hids[b] })
 	for _, id := range hids {
 		h := j.live.handles[id]
-		j.write(encodeIDs(recHandle, uint64(id), uint64(h.node), uint64(h.flags)))
+		buf = appendRecord(buf, encodeIDs(recHandle, uint64(id), uint64(h.node), uint64(h.flags)))
+		n++
+	}
+	before := j.records
+	j.writeAll(buf, n)
+	if j.err == nil {
+		j.records -= before
 	}
 	return newStart
 }
@@ -329,12 +370,14 @@ func (j *journal) switchStart(newStart int64) {
 	j.start = newStart
 }
 
-// applyRecord applies one record payload to st.
+// applyRecord applies one record payload to st. A damaged record changes
+// nothing.
 func applyRecord(st *journalState, payload []byte) error {
 	if len(payload) == 0 {
 		return errors.New("journal: empty record")
 	}
 	d := decoder{b: payload[1:]}
+	var apply func()
 	switch payload[0] {
 	case recNode:
 		id := fuse.NodeID(d.uvarint())
@@ -342,7 +385,7 @@ func applyRecord(st *journalState, payload []byte) error {
 		n.mode = uint32(d.uvarint())
 		n.mapped = d.uvarint() != 0
 		n.path = d.str()
-		if d.err == nil {
+		apply = func() {
 			st.nodes[id] = n
 			if n.gen > st.maxGen {
 				st.maxGen = n.gen
@@ -350,38 +393,38 @@ func applyRecord(st *journalState, payload []byte) error {
 		}
 	case recForget:
 		id := fuse.NodeID(d.uvarint())
-		if d.err == nil {
-			delete(st.nodes, id)
-		}
+		apply = func() { delete(st.nodes, id) }
 	case recHandle:
 		id := fuse.HandleID(d.uvarint())
 		h := journalHandle{node: fuse.NodeID(d.uvarint()), flags: uint32(d.uvarint())}
-		if d.err == nil {
-			st.handles[id] = h
-		}
+		apply = func() { st.handles[id] = h }
 	case recRelease:
 		id := fuse.HandleID(d.uvarint())
-		if d.err == nil {
-			delete(st.handles, id)
-		}
+		apply = func() { delete(st.handles, id) }
 	case recPath:
 		id := fuse.NodeID(d.uvarint())
 		p := d.str()
-		if n, ok := st.nodes[id]; ok && d.err == nil {
-			n.path = p
-			st.nodes[id] = n
+		apply = func() {
+			if n, ok := st.nodes[id]; ok {
+				n.path = p
+				st.nodes[id] = n
+			}
 		}
 	case recMapped:
 		id := fuse.NodeID(d.uvarint())
 		mapped := d.uvarint() != 0
-		if n, ok := st.nodes[id]; ok && d.err == nil {
-			n.mapped = mapped
-			st.nodes[id] = n
+		apply = func() {
+			if n, ok := st.nodes[id]; ok {
+				n.mapped = mapped
+				st.nodes[id] = n
+			}
 		}
 	case recGen:
 		gen := d.uvarint()
-		if d.err == nil && gen > st.maxGen {
-			st.maxGen = gen
+		apply = func() {
+			if gen > st.maxGen {
+				st.maxGen = gen
+			}
 		}
 	default:
 		return fmt.Errorf("journal: unknown record type %d", payload[0])
@@ -389,7 +432,11 @@ func applyRecord(st *journalState, payload []byte) error {
 	if d.err == nil && len(d.b) != 0 {
 		d.err = errors.New("journal: trailing bytes in record")
 	}
-	return d.err
+	if d.err != nil {
+		return d.err
+	}
+	apply()
+	return nil
 }
 
 type decoder struct {

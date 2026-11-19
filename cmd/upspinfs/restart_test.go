@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-//go:build !windows
+//go:build linux
 
 package main
 
@@ -64,13 +64,25 @@ func (k *fakeKernel) call(op uint32, node uint64, args []byte) (syscall.Errno, [
 		k.t.Fatal(err)
 	}
 	buf := make([]byte, 1<<16)
-	n, err := syscall.Read(k.fd, buf)
-	if err != nil {
-		k.t.Fatalf("reading the answer to op %d: %v", op, err)
+	for {
+		n, err := syscall.Read(k.fd, buf)
+		if err != nil {
+			k.t.Fatalf("reading the answer to op %d: %v", op, err)
+		}
+		if n < outHeaderSize {
+			k.t.Fatalf("short answer to op %d: %x", op, buf[:n])
+		}
+		buf = buf[:n]
+		if binary.NativeEndian.Uint64(buf[8:]) != 0 {
+			break
+		}
+		// A notification from the server, such as a cache invalidation.
+		buf = buf[:cap(buf)]
 	}
-	if n < outHeaderSize || binary.NativeEndian.Uint64(buf[8:]) != k.unique {
-		k.t.Fatalf("bad answer to op %d: %x", op, buf[:n])
+	if binary.NativeEndian.Uint64(buf[8:]) != k.unique {
+		k.t.Fatalf("answer to request %d, want %d", binary.NativeEndian.Uint64(buf[8:]), k.unique)
 	}
+	n := len(buf)
 	return syscall.Errno(-int32(binary.NativeEndian.Uint32(buf[4:]))), buf[outHeaderSize:n]
 }
 
@@ -83,6 +95,19 @@ func (k *fakeKernel) lookup(parent uint64, name string) (id, gen uint64) {
 		k.t.Fatalf("lookup %q: %v", name, errno)
 	}
 	return binary.NativeEndian.Uint64(body[0:]), binary.NativeEndian.Uint64(body[8:])
+}
+
+// rename renames oldName in the directory dir to newName in the same
+// directory.
+func (k *fakeKernel) rename(dir uint64, oldName, newName string) {
+	k.t.Helper()
+	const opRename = 12
+	args := make([]byte, 8, 8+len(oldName)+len(newName)+2)
+	binary.NativeEndian.PutUint64(args, dir)
+	args = append(append(append(append(args, oldName...), 0), newName...), 0)
+	if errno, _ := k.call(opRename, dir, args); errno != 0 {
+		k.t.Fatalf("rename %q to %q: %v", oldName, newName, errno)
+	}
 }
 
 // getattr returns the inode number and size of a node.
@@ -141,6 +166,12 @@ func TestRestartKeepsNodes(t *testing.T) {
 	if _, err := c.Put(dir+"/gone", []byte("bye")); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := c.Put(dir+"/src", []byte("source")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Put(dir+"/dst", []byte("target")); err != nil {
+		t.Fatal(err)
+	}
 
 	jf := tempJournal(t)
 	j, _ := mustOpenJournal(t, jf)
@@ -151,6 +182,11 @@ func TestRestartKeepsNodes(t *testing.T) {
 	dirID, _ := kernel.lookup(userID, "restart")
 	fileID, fileGen := kernel.lookup(dirID, "file")
 	goneID, _ := kernel.lookup(dirID, "gone")
+	dstID, _ := kernel.lookup(dirID, "dst")
+	srcID, srcGen := kernel.lookup(dirID, "src")
+	// The rename moves src over dst. The kernel keeps both IDs: srcID now
+	// names dst, and dstID names a file without a path.
+	kernel.rename(dirID, "src", "dst")
 	errno, fileInode, size := kernel.getattr(fileID)
 	if errno != 0 || size != 5 {
 		t.Fatalf("getattr before the restart: %v, size %d", errno, size)
@@ -185,6 +221,15 @@ func TestRestartKeepsNodes(t *testing.T) {
 	if errno, _, _ := kernel.getattr(goneID); errno != syscall.ENOENT {
 		t.Errorf("getattr of a node deleted during the restart: %v, want ENOENT", errno)
 	}
+	if errno, _, size := kernel.getattr(srcID); errno != 0 || size != uint64(len("source")) {
+		t.Errorf("getattr of the renamed node: %v, size %d", errno, size)
+	}
+	if id, gen := kernel.lookup(dirID, "dst"); id != srcID || gen != srcGen {
+		t.Errorf("lookup of the rename target = %d, %d; want %d, %d", id, gen, srcID, srcGen)
+	}
+	if errno, _, _ := kernel.getattr(dstID); errno != syscall.ENOENT {
+		t.Errorf("getattr of the node renamed over: %v, want ENOENT", errno)
+	}
 
 	// A new node gets an inode number the first process did not use.
 	newID, _ := kernel.lookup(userID, "restart")
@@ -197,5 +242,44 @@ func TestRestartKeepsNodes(t *testing.T) {
 	newFileID, _ := kernel.lookup(dirID, "new")
 	if _, newInode, _ := kernel.getattr(newFileID); newInode <= fileInode {
 		t.Errorf("new inode %d is not above the restored %d", newInode, fileInode)
+	}
+}
+
+// TestForgottenNodeLeavesJournal checks that a node the kernel forgot cannot
+// change the journal entry of the next node that gets its ID.
+func TestForgottenNodeLeavesJournal(t *testing.T) {
+	j, _ := mustOpenJournal(t, tempJournal(t))
+	f := newUpspinFS(testConfig.cfg, t.TempDir(), t.TempDir(), maxBytes)
+	f.journal = j
+	old := &node{f: f, jpath: "u@x.com/a", jmapped: true}
+	f.NodeSaved(fs.NodeEntry{ID: 5, Inode: 9, Refs: 1, Node: old})
+	f.NodeRemoved(5)
+	reuser := &node{f: f, jpath: "u@x.com/b", jmapped: true}
+	f.NodeSaved(fs.NodeEntry{ID: 5, Inode: 10, Generation: 1, Refs: 1, Node: reuser})
+
+	f.Lock()
+	f.setMapped(old, false)
+	f.setPath(old, "u@x.com/elsewhere")
+	f.Unlock()
+
+	want := journalNode{inode: 10, gen: 1, refs: 1, path: "u@x.com/b", mapped: true}
+	if got := j.live.nodes[5]; got != want {
+		t.Errorf("journal entry of ID 5 = %+v, want %+v", got, want)
+	}
+}
+
+// TestRestoreReleasesLostHandles checks that handles which cannot be restored
+// leave the journal, so that they are not reported again.
+func TestRestoreReleasesLostHandles(t *testing.T) {
+	jf := tempJournal(t)
+	j, _ := mustOpenJournal(t, jf)
+	j.putNode(2, journalNode{inode: 5, refs: 1, path: testConfig.user + "/x", mapped: true})
+	j.putHandle(3, journalHandle{node: 2})
+	j, st := mustOpenJournal(t, jf)
+	f := newUpspinFS(testConfig.cfg, t.TempDir(), t.TempDir(), maxBytes)
+	f.journal = j
+	f.restore(st)
+	if len(j.live.handles) != 0 {
+		t.Errorf("handles after restore: %v", j.live.handles)
 	}
 }
