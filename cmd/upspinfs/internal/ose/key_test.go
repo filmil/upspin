@@ -45,6 +45,11 @@ func TestKeyReopensFile(t *testing.T) {
 	if _, err := OpenFileWithKey(name, O_RDWR, 0600, key[:5]); err == nil {
 		t.Error("OpenFileWithKey accepted a short key")
 	}
+	other := append([]byte(nil), key...)
+	other[0] ^= 1
+	if _, err := OpenFileWithKey(name, O_RDWR, 0600, other); err == nil {
+		t.Error("OpenFileWithKey accepted another key for a known file")
+	}
 	if _, ok := Key(filepath.Join(t.TempDir(), "none")); ok {
 		t.Error("Key returned a key for an unknown file")
 	}

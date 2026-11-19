@@ -74,9 +74,9 @@ type upspinFS struct {
 	journal *journal              // Nil if the tables are not kept.
 	byID    map[fuse.NodeID]*node // The node of each kernel node ID.
 
-	// restoredWrites are restored nodes whose cache files hold writes
-	// that were not put before the restart.
-	restoredWrites []*node
+	// restoredWrites are the cache files of restored nodes that hold
+	// writes not put before the restart.
+	restoredWrites []restoredWrite
 }
 
 type nodeType uint8
@@ -115,10 +115,10 @@ type node struct {
 	stale bool
 
 	// Journal fields, protected by f.jmu. See journal_fs.go.
-	kernelID fuse.NodeID // The kernel's ID for this node; 0 if none yet.
-	jpath    string      // The path name the journal knows.
-	jmode    uint32      // The mode the node was created with.
-	jmapped  bool        // Whether f.nodeMap maps jpath to this node.
+	kernelID fuse.NodeID   // The kernel's ID for this node; 0 if none yet.
+	jpath    string        // The path name the journal knows.
+	jmode    uint32        // The mode the node was created with.
+	jmapped  bool          // Whether f.nodeMap maps jpath to this node.
 	jcache   *journalCache // The journaled cache file with unsaved writes.
 }
 
@@ -763,7 +763,7 @@ func (n *node) Setattr(context gContext.Context, req *fuse.SetattrRequest, resp 
 		//    a cached file, truncate, and write back to dir/store.
 		n.Lock()
 		if len(n.handles) > 0 {
-			if err := n.ensureCache(); err != nil {
+			if err := n.ensureCache(nil); err != nil {
 				n.Unlock()
 				return e2e(errors.E(op, n.uname, err))
 			}
@@ -859,7 +859,7 @@ func (h *handle) Read(context gContext.Context, req *fuse.ReadRequest, resp *fus
 	const op errors.Op = "Read"
 	h.n.Lock()
 	defer h.n.Unlock()
-	if err := h.n.ensureCache(); err != nil {
+	if err := h.n.ensureCache(h); err != nil {
 		return e2e(errors.E(op, h.n.uname, err))
 	}
 	resp.Data = make([]byte, cap(resp.Data))
@@ -882,7 +882,7 @@ func (h *handle) Write(context gContext.Context, req *fuse.WriteRequest, resp *f
 	const op errors.Op = "Write"
 	h.n.Lock()
 	defer h.n.Unlock()
-	if err := h.n.ensureCache(); err != nil {
+	if err := h.n.ensureCache(h); err != nil {
 		return e2e(errors.E(op, h.n.uname, err))
 	}
 	n, err := h.n.cf.writeAt(req.Data, req.Offset)

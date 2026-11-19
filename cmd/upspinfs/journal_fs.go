@@ -50,9 +50,14 @@ func (f *upspinFS) NodeSaved(e fs.NodeEntry) {
 		path:   n.jpath,
 		mapped: n.jmapped,
 	})
-	if isNew && n.jcache != nil {
-		// The file was created before the kernel learned its ID.
-		f.journal.putCache(e.ID, *n.jcache)
+	if isNew {
+		if n.jcache != nil {
+			// The file was created before the kernel learned its ID.
+			f.journal.putCache(e.ID, *n.jcache)
+		} else if _, ok := f.journal.live.caches[e.ID]; ok {
+			// A node that lost this ID to n left its record behind.
+			f.journal.dropCache(e.ID)
+		}
 	}
 	f.checkJournal()
 }
@@ -242,30 +247,51 @@ func (f *upspinFS) restore(st journalState) fs.State {
 	return out
 }
 
+// restoredWrite is a cache file with writes from before a restart.
+type restoredWrite struct {
+	n  *node
+	cf *cachedFile
+}
+
 // restoreCache reopens the cache file of node id, which holds writes the
 // earlier process did not put. Called with f and f.jmu locked.
 func (f *upspinFS) restoreCache(id fuse.NodeID, c journalCache) bool {
 	n := f.byID[id]
-	if n == nil || n.t != otherNode {
-		return false
-	}
-	file, err := ose.OpenFileWithKey(c.fname, os.O_RDWR, cachedFilePerms, c.key)
-	if err == nil {
-		var info os.FileInfo
-		if info, err = file.Stat(); err == nil {
-			n.cf = &cachedFile{c: f.cache, n: n, fname: c.fname, dirty: true, file: file, size: info.Size()}
-			n.seq = c.seq
-			n.jcache = &c
-			// The cache file is newer than anything in the store.
-			n.stale = false
-			n.attr.Size = uint64(info.Size())
-			n.attr.Blocks = (n.attr.Size + 511) / 512
-			f.restoredWrites = append(f.restoredWrites, n)
-			return true
+	var err error
+	switch {
+	case n == nil || n.t != otherNode:
+		err = errors.Str("no such file node")
+	case !n.jmapped:
+		// The file was deleted or replaced while open. Putting the
+		// writes would bring it back.
+		err = errors.Str("the file lost its path before the restart")
+	default:
+		var file *ose.File
+		file, err = ose.OpenFileWithKey(c.fname, os.O_RDWR, cachedFilePerms, c.key)
+		if err == nil {
+			var info os.FileInfo
+			if info, err = file.Stat(); err == nil {
+				cf := &cachedFile{c: f.cache, n: n, fname: c.fname, dirty: true, file: file, size: info.Size()}
+				n.cf = cf
+				n.seq = c.seq
+				n.jcache = &c
+				// The cache file is newer than anything in the store.
+				n.stale = false
+				n.attr.Size = uint64(info.Size())
+				n.attr.Blocks = (n.attr.Size + 511) / 512
+				n.attr.Mtime = info.ModTime()
+				n.attr.Ctime = info.ModTime()
+				f.restoredWrites = append(f.restoredWrites, restoredWrite{n, cf})
+				return true
+			}
+			file.Close()
 		}
-		file.Close()
 	}
-	log.Error.Printf("upspinfs: unsaved writes to %q are lost: %v", n.uname, err)
+	name := c.fname
+	if n != nil {
+		name = string(n.uname)
+	}
+	log.Error.Printf("upspinfs: unsaved writes to %q are lost: %v", name, err)
 	if f.journal != nil {
 		f.journal.dropCache(id)
 	}
@@ -274,17 +300,28 @@ func (f *upspinFS) restoreCache(id fuse.NodeID, c journalCache) bool {
 
 // finishRestoredWrites puts the restored cache files with unsaved writes. The
 // kernel may never release their handles: a release in flight at the crash is
-// lost. Call it after the server started, since a put invalidates the
-// kernel's caches.
+// lost. An application still writing may see a partial version put, as it
+// would after any flush. Call it after the server started, since a put
+// invalidates the kernel's caches.
 func (f *upspinFS) finishRestoredWrites() {
 	f.Lock()
-	nodes := f.restoredWrites
+	writes := f.restoredWrites
 	f.restoredWrites = nil
 	f.Unlock()
-	for _, n := range nodes {
+	for _, w := range writes {
+		n := w.n
 		n.Lock()
-		if err := n.cf.writeback(n); err != nil {
-			log.Error.Printf("upspinfs: writing back %q after a restart: %v", n.uname, err)
+		// A release may have put and closed the file already, and a new
+		// open may have made another cache file since.
+		if n.cf == w.cf && w.cf.dirty {
+			if err := w.cf.writeback(n); err != nil {
+				log.Error.Printf("upspinfs: writing back %q after a restart: %v", n.uname, err)
+			}
+			if len(n.handles) == 0 {
+				// No handle came back, so no release will close it.
+				w.cf.close()
+				n.cf = nil
+			}
 		}
 		n.Unlock()
 	}

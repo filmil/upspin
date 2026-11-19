@@ -643,15 +643,27 @@ func (cf *cachedFile) journalRecord() *journalCache {
 }
 
 // ensureCache opens the cache file of a node whose handles were restored
-// after a restart and have not been used since. Called with n locked.
-func (n *node) ensureCache() error {
+// after a restart and have not been used since. h is the handle the request
+// came on; nil means any handle of n. Called with n locked.
+func (n *node) ensureCache(h *handle) error {
 	if n.cf != nil {
 		return nil
 	}
-	for h := range n.handles {
-		return n.f.cache.open(h, h.flags)
+	if h == nil {
+		// Setattr has no handle. The flags only need to allow the
+		// truncation that follows, which any handle of n allows.
+		for any := range n.handles {
+			if h == nil || any.flags&fuse.OpenAccessModeMask != fuse.OpenReadOnly {
+				h = any
+			}
+		}
 	}
-	return errors.E(errors.IO, n.uname, "no open handle")
+	if h == nil {
+		return errors.E(errors.IO, n.uname, "no open handle")
+	}
+	// The flags are those of the original open. Truncation, creation and
+	// exclusivity took effect then and must not happen again.
+	return n.f.cache.open(h, h.flags&^(fuse.OpenTruncate|fuse.OpenCreate|fuse.OpenExclusive))
 }
 
 // putRedirect assumes that the target fits in a single block.

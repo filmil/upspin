@@ -371,6 +371,9 @@ func TestRestartKeepsOpenFiles(t *testing.T) {
 	if _, err := c.Put(dir+"/readme", []byte("read me")); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := c.Put(dir+"/edit", []byte("original")); err != nil {
+		t.Fatal(err)
+	}
 
 	jf := tempJournal(t)
 	j, _ := mustOpenJournal(t, jf)
@@ -387,6 +390,19 @@ func TestRestartKeepsOpenFiles(t *testing.T) {
 	}
 	newID, newFh := kernel.create(dirID, "new", oRDWR)
 	if errno := kernel.write(newID, newFh, 0, "unsaved data"); errno != 0 {
+		t.Fatalf("write before the restart: %v", errno)
+	}
+	// A change to an existing file: its write back is conditioned on the
+	// sequence the file had when it was opened.
+	editID, _ := kernel.lookup(dirID, "edit")
+	editFh := kernel.open(editID, oRDWR)
+	if errno := kernel.write(editID, editFh, 0, "EDIT"); errno != 0 {
+		t.Fatalf("write to an existing file before the restart: %v", errno)
+	}
+	// A file the kernel releases after the restart, before the restored
+	// writes are put.
+	earlyID, earlyFh := kernel.create(dirID, "early", oRDWR)
+	if errno := kernel.write(earlyID, earlyFh, 0, "released early"); errno != 0 {
 		t.Fatalf("write before the restart: %v", errno)
 	}
 	// upspinfs dies before the kernel releases either handle.
@@ -412,9 +428,21 @@ func TestRestartKeepsOpenFiles(t *testing.T) {
 		t.Errorf("read through the restored read handle: %v, %q", errno, data)
 	}
 
+	if errno := kernel.release(earlyID, earlyFh); errno != 0 {
+		t.Errorf("release before the restored writes are put: %v", errno)
+	}
 	second.finishRestoredWrites()
 	if data, err := c.Get(dir + "/new"); err != nil || string(data) != "unsaved data" {
 		t.Errorf("store after finishRestoredWrites: %v, %q", err, data)
+	}
+	if data, err := c.Get(dir + "/edit"); err != nil || string(data) != "EDITinal" {
+		t.Errorf("edited file after finishRestoredWrites: %v, %q", err, data)
+	}
+	if data, err := c.Get(dir + "/early"); err != nil || string(data) != "released early" {
+		t.Errorf("file released after the restart: %v, %q", err, data)
+	}
+	if errno := kernel.release(editID, editFh); errno != 0 {
+		t.Errorf("release of the edited file: %v", errno)
 	}
 	second.jmu.Lock()
 	caches := len(second.journal.live.caches)
@@ -441,5 +469,41 @@ func TestRestartKeepsOpenFiles(t *testing.T) {
 	second.jmu.Unlock()
 	if handles != 0 {
 		t.Errorf("%d handles in the journal after both releases", handles)
+	}
+}
+
+// TestRestoreDropsUnusableCaches checks that cache records which cannot be
+// restored leave the journal: a missing cache file, and a file that lost its
+// path before the restart.
+func TestRestoreDropsUnusableCaches(t *testing.T) {
+	jf := tempJournal(t)
+	j, _ := mustOpenJournal(t, jf)
+	key := make([]byte, 32)
+	j.putNode(2, journalNode{inode: 5, refs: 1, path: testConfig.user + "/missing", mapped: true})
+	j.putCache(2, journalCache{seq: 1, fname: "/nonexistent/cache/file", key: key})
+	j.putNode(3, journalNode{inode: 6, refs: 1, path: testConfig.user + "/unlinked"})
+	j.putCache(3, journalCache{seq: 1, fname: "/nonexistent/other", key: key})
+	j, st := mustOpenJournal(t, jf)
+	f := newUpspinFS(testConfig.cfg, t.TempDir(), t.TempDir(), maxBytes)
+	f.journal = j
+	f.restore(st)
+	if len(j.live.caches) != 0 || len(f.restoredWrites) != 0 {
+		t.Errorf("after restore: journal caches %v, restored writes %d", j.live.caches, len(f.restoredWrites))
+	}
+}
+
+// TestReusedIDDropsCacheRecord checks that a node which takes over a kernel
+// ID does not inherit the cache record of the node that had it.
+func TestReusedIDDropsCacheRecord(t *testing.T) {
+	j, _ := mustOpenJournal(t, tempJournal(t))
+	f := newUpspinFS(testConfig.cfg, t.TempDir(), t.TempDir(), maxBytes)
+	f.journal = j
+	old := &node{f: f, jpath: "u@x.com/a", jmapped: true, jcache: &journalCache{seq: 1, fname: "/c/tmp/1"}}
+	f.NodeSaved(fs.NodeEntry{ID: 5, Inode: 9, Refs: 1, Node: old})
+	// The Forget for old was missed; the server gives its ID to another node.
+	reuser := &node{f: f, jpath: "u@x.com/b", jmapped: true}
+	f.NodeSaved(fs.NodeEntry{ID: 5, Inode: 10, Generation: 1, Refs: 1, Node: reuser})
+	if c, ok := j.live.caches[5]; ok {
+		t.Errorf("ID 5 kept the cache record %+v of its earlier node", c)
 	}
 }
