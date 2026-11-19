@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -56,7 +57,10 @@ func supervise(cfg upspin.Config, mountpoint string, allowOther bool, hangTimeou
 	defer c.Close()
 	conn, err := connectionID(mountpoint)
 	if err != nil {
-		log.Error.Printf("upspinfs: finding the FUSE connection: %v", err)
+		log.Error.Printf("upspinfs: finding the FUSE connection in %s: %v", fuseConnections, err)
+		if hangTimeout > 0 {
+			log.Error.Printf("upspinfs: -hang_timeout is off: it needs the FUSE connection")
+		}
 	}
 
 	files := []*os.File{c.File()}
@@ -88,7 +92,7 @@ func supervise(cfg upspin.Config, mountpoint string, allowOther bool, hangTimeou
 	})
 	delay := minRestartDelay
 	for {
-		cmd := exec.Command(self, childArgs...) // #nosec G204 -- this program, with its own arguments.
+		cmd := exec.Command(self, childArgs...) // #nosec G204 G702 -- this program, with its own arguments.
 		cmd.Stdin, cmd.Stdout, cmd.Stderr = nil, os.Stdout, os.Stderr
 		cmd.ExtraFiles = files
 		// The server must not outlive the supervisor.
@@ -113,6 +117,7 @@ func supervise(cfg upspin.Config, mountpoint string, allowOther bool, hangTimeou
 			select {
 			case <-stop:
 				log.Info.Printf("upspinfs: stopping, unmounting")
+				close(stopWatch)
 				stopChild(cmd, exited, conn)
 				unmount(mountpoint)
 				close(stopped)
@@ -128,8 +133,20 @@ func supervise(cfg upspin.Config, mountpoint string, allowOther bool, hangTimeou
 				log.Error.Printf("upspinfs: the server died: %v; restarting", err)
 			case <-hung:
 				log.Error.Printf("upspinfs: the server stopped answering for %v; restarting it", hangTimeout)
+				close(stopWatch)
 				cmd.Process.Kill()
-				<-exited
+				select {
+				case <-exited:
+				case <-time.After(stopTimeout):
+					// It waits for its own mount and cannot die.
+					// Only aborting the connection frees it, and
+					// that ends the mount.
+					log.Error.Printf("upspinfs: the hung server does not die; giving up the mount")
+					stopChild(cmd, exited, conn)
+					unmount(mountpoint)
+					return 1
+				}
+				continue
 			}
 			close(stopWatch)
 		}
@@ -204,6 +221,12 @@ func watch(self, root, conn string, timeout time.Duration, hung chan<- bool, sto
 	if interval < time.Second {
 		interval = time.Second
 	}
+	// A new server may take a while to start: give it one timeout.
+	select {
+	case <-stop:
+		return
+	case <-time.After(timeout):
+	}
 	for {
 		select {
 		case <-stop:
@@ -211,7 +234,7 @@ func watch(self, root, conn string, timeout time.Duration, hung chan<- bool, sto
 		case <-time.After(interval):
 		}
 		answered := make(chan bool, 1)
-		cmd := exec.Command(self, "-fuse_probe="+root) // #nosec G204 -- this program.
+		cmd := exec.Command(self, "-fuse_probe="+root) // #nosec G204 G702 -- this program.
 		cmd.SysProcAttr = &syscall.SysProcAttr{Pdeathsig: syscall.SIGKILL}
 		if err := cmd.Start(); err != nil {
 			continue
@@ -229,6 +252,8 @@ func watch(self, root, conn string, timeout time.Duration, hung chan<- bool, sto
 			hung <- true
 			return
 		}
+		// The probe is slow for another reason; do not let them pile up.
+		cmd.Process.Kill()
 	}
 }
 
@@ -257,24 +282,54 @@ func connectionID(mountpoint string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	// mountinfo lists the path with its symbolic links resolved. Only the
+	// parent is resolved here: any look at the mountpoint itself is a FUSE
+	// request.
+	if dir, err := filepath.EvalSymlinks(filepath.Dir(mountpoint)); err == nil {
+		mountpoint = filepath.Join(dir, filepath.Base(mountpoint))
+	}
+	id := mountMinor(string(data), mountpoint)
+	if id == "" {
+		return "", errors.New("no mount at " + mountpoint)
+	}
+	if _, err := os.Stat(filepath.Join(fuseConnections, id)); err != nil { // #nosec G703 -- id is a device number from mountinfo.
+		return "", err
+	}
+	return id, nil
+}
+
+// mountMinor returns the minor device number of the mount at mountpoint in
+// the mountinfo text, or "" if there is none. A later line is a mount on top
+// of an earlier one.
+func mountMinor(mountinfo, mountpoint string) string {
 	id := ""
-	for _, line := range strings.Split(string(data), "\n") {
+	for _, line := range strings.Split(mountinfo, "\n") {
 		// Fields: mount ID, parent ID, major:minor, root, mount point.
 		f := strings.Fields(line)
-		if len(f) > 4 && f[4] == mountpoint {
-			// A later line is a mount on top of an earlier one.
+		if len(f) > 4 && unescapeMountinfo(f[4]) == mountpoint {
 			if _, minor, ok := strings.Cut(f[2], ":"); ok {
 				id = minor
 			}
 		}
 	}
-	if id == "" {
-		return "", errors.New("no mount at " + mountpoint)
+	return id
+}
+
+// unescapeMountinfo undoes the octal escapes (\040 for a space) that the
+// kernel writes into mountinfo paths.
+func unescapeMountinfo(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\\' && i+3 < len(s) {
+			if v, err := strconv.ParseUint(s[i+1:i+4], 8, 8); err == nil {
+				b.WriteByte(byte(v))
+				i += 3
+				continue
+			}
+		}
+		b.WriteByte(s[i])
 	}
-	if _, err := os.Stat(filepath.Join(fuseConnections, id)); err != nil {
-		return "", err
-	}
-	return id, nil
+	return b.String()
 }
 
 // probe looks up path in a separate process, without waiting for it. A new
@@ -282,7 +337,7 @@ func connectionID(mountpoint string) (string, error) {
 // the lookup makes that first request. The server itself must not look into
 // its own mount: a process that waits for its own answer cannot exit.
 func probe(self, path string) {
-	cmd := exec.Command(self, "-fuse_probe="+path) // #nosec G204 -- this program.
+	cmd := exec.Command(self, "-fuse_probe="+path) // #nosec G204 G702 -- this program.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Pdeathsig: syscall.SIGKILL}
 	if err := cmd.Start(); err != nil {
 		log.Error.Printf("upspinfs: probing the mount: %v", err)
@@ -298,7 +353,7 @@ func memFile(name string) (*os.File, error) {
 	if err != nil {
 		return nil, err
 	}
-	if sysMemfdCreate < 0 {
+	if !memfdKnown {
 		return nil, errors.New("memfd_create: unknown on this architecture")
 	}
 	fd, _, errno := syscall.Syscall(uintptr(sysMemfdCreate), uintptr(unsafe.Pointer(p)), mfdCloexec, 0)

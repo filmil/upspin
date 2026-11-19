@@ -50,6 +50,7 @@ type mount struct {
 	root       string
 	supervisor *exec.Cmd
 	exited     chan error
+	schema     *upbox.Schema
 }
 
 func upspinfsBinary(t *testing.T) string {
@@ -82,7 +83,7 @@ func startMount(t *testing.T, flags ...string) *mount {
 	}
 	t.Cleanup(func() { sc.Stop() })
 
-	m := &mount{t: t, dir: t.TempDir(), exited: make(chan error, 1)}
+	m := &mount{t: t, dir: t.TempDir(), exited: make(chan error, 1), schema: sc}
 	m.root = filepath.Join(m.dir, user)
 	args := append([]string{"-supervise", "-config=" + sc.Config(user), "-cachedir=" + t.TempDir(), "-log=info"}, flags...)
 	m.supervisor = exec.Command(upspinfsBinary(t), append(args, m.dir)...)
@@ -149,7 +150,7 @@ func (m *mount) server(not int) int {
 	deadline := time.Now().Add(opTimeout)
 	for time.Now().Before(deadline) {
 		for _, child := range children(pid) {
-			if child != not && !isProbe(child) {
+			if child != not && isServer(child) {
 				return child
 			}
 		}
@@ -190,10 +191,11 @@ func children(pid int) []int {
 	return out
 }
 
-// isProbe reports whether pid is a probe process of the supervisor.
-func isProbe(pid int) bool {
-	cmdline, _ := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid))
-	return bytes.Contains(cmdline, []byte("-fuse_probe="))
+// isServer reports whether pid is a server process of the supervisor, not a
+// probe. A process that just exited has no command line and is no server.
+func isServer(pid int) bool {
+	cmdline, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid))
+	return err == nil && bytes.Contains(cmdline, []byte("-fuse_fd="))
 }
 
 // kill kills the server process and waits for its successor.
@@ -204,6 +206,18 @@ func (m *mount) kill() {
 		m.t.Fatal(err)
 	}
 	m.server(old)
+}
+
+// within2 is within for operations that also return a count.
+func within2(t *testing.T, what string, op func() (int, error)) (int, error) {
+	t.Helper()
+	var n int
+	err := within(t, what, func() error {
+		var err error
+		n, err = op()
+		return err
+	})
+	return n, err
 }
 
 // within runs op and fails the test if it does not return in opTimeout.
@@ -246,8 +260,13 @@ func TestKillDuringRead(t *testing.T) {
 		t.Fatal(err)
 	}
 	m.kill()
-	err = within(t, "read after the kill", func() error {
-		_, err := f.ReadAt(got[100000:], 100000)
+	if _, err := within2(t, "read after the kill", func() (int, error) { return f.ReadAt(got[100000:500000], 100000) }); err != nil {
+		t.Fatalf("read through a descriptor opened before the kill: %v", err)
+	}
+	// A second kill, of the server that took over.
+	m.kill()
+	err = within(t, "read after the second kill", func() error {
+		_, err := f.ReadAt(got[500000:], 500000)
 		return err
 	})
 	if err != nil {
@@ -379,5 +398,35 @@ func TestHungServerRestarts(t *testing.T) {
 		return err
 	}); err != nil || string(got) != "still here" {
 		t.Errorf("read after the restart: %q, %v", got, err)
+	}
+}
+
+// TestKillWithoutClose writes a file and kills the server before the file is
+// closed. The descriptor is never closed, so no release comes: the new
+// server must put the writes by itself.
+func TestKillWithoutClose(t *testing.T) {
+	m := startMount(t)
+	name := filepath.Join(m.root, "unclosed")
+	want := pattern(50000)
+	f, err := os.OpenFile(name, os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if _, err := f.Write(want); err != nil {
+		t.Fatal(err)
+	}
+	m.kill()
+	// Read the store with the upspin command, around the mount.
+	deadline := time.Now().Add(opTimeout)
+	for {
+		out, err := exec.Command(m.schema.Command("upspin"), "-config="+m.schema.Config(user), "get", user+"/unclosed").Output()
+		if err == nil && bytes.Equal(out, want) {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the store does not have the writes made before the kill: %d bytes, %v", len(out), err)
+		}
+		time.Sleep(500 * time.Millisecond)
 	}
 }

@@ -1177,7 +1177,7 @@ func do(cfg upspin.Config, mountpoint string, cacheDir string, cacheSize int64, 
 		fuse.Unmount(mountpoint)
 	})
 
-	done := serve(f, c, nil)
+	done := serve(f, c, nil, false)
 	preload(cfg, mountpoint)
 	return done
 }
@@ -1201,14 +1201,18 @@ func mountOptions(cfg upspin.Config, allowOther bool) []fuse.MountOption {
 }
 
 // abortLostWindow is how many requests below its first one a server that
-// adopted a mount answers with EIO. See fs.Config.AbortLost.
-const abortLostWindow = 4096
+// adopted a mount answers with EIO. See fs.Config.AbortLost. Each costs one
+// write that the kernel rejects at once, so a large window is cheap; a lost
+// request further back still waits forever.
+const abortLostWindow = 1 << 16
 
 // serve serves the connection c in a goroutine, from the tables in st if
-// they are not nil. The returned channel closes when the mount ends.
-func serve(f *upspinFS, c *fuse.Conn, st *fs.State) chan bool {
+// they are not nil. A server that adopted a mount (adopted) answers the
+// requests its predecessor lost. The returned channel closes when the mount
+// ends.
+func serve(f *upspinFS, c *fuse.Conn, st *fs.State, adopted bool) chan bool {
 	cfg := &fs.Config{Observer: f}
-	if st != nil {
+	if adopted {
 		cfg.AbortLost = abortLostWindow
 	}
 	f.server = fs.New(c, cfg)
@@ -1277,7 +1281,7 @@ func doAdopted(cfg upspin.Config, mountpoint, cacheDir string, cacheSize int64, 
 	}
 
 	// The supervisor unmounts; a child only stops serving.
-	done := serve(f, c, tables)
+	done := serve(f, c, tables, true)
 	if tables != nil {
 		log.Info.Printf("upspinfs: took over the mount with %d nodes and %d open files", len(tables.Nodes), len(tables.Handles))
 		go f.finishRestoredWrites()

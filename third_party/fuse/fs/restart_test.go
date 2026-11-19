@@ -337,3 +337,46 @@ func TestAbortLostRequests(t *testing.T) {
 		t.Error(err)
 	}
 }
+
+// TestAbortLostWaitsForOrdinaryRequest sends an interrupt first. Its ID is
+// odd and names an older request, so the server must wait for the next
+// ordinary request to decide what was lost.
+func TestAbortLostWaitsForOrdinaryRequest(t *testing.T) {
+	const opInterrupt = 36
+	conn, kernel := newFakeConn(t)
+	defer conn.Close()
+	server := New(conn, &Config{AbortLost: 2})
+	done := make(chan error, 1)
+	go func() { done <- server.Serve(&restartFS{nodes: map[string]*restartNode{}}) }()
+
+	// An interrupt for request 6, with the kernel's interrupt bit set.
+	msg := make([]byte, inHeaderSize+8)
+	binary.NativeEndian.PutUint32(msg[0:], uint32(len(msg)))
+	binary.NativeEndian.PutUint32(msg[4:], opInterrupt)
+	binary.NativeEndian.PutUint64(msg[8:], 7)
+	binary.NativeEndian.PutUint64(msg[inHeaderSize:], 6)
+	if _, err := syscall.Write(kernel.fd, msg); err != nil {
+		t.Fatal(err)
+	}
+	kernel.unique = 10
+	unique := kernel.send(opGetattr, 1, make([]byte, 16))
+	buf := make([]byte, 1<<16)
+	var aborted []uint64
+	for {
+		if _, err := syscall.Read(kernel.fd, buf); err != nil {
+			t.Fatal(err)
+		}
+		id := binary.NativeEndian.Uint64(buf[8:])
+		if id == unique {
+			break
+		}
+		aborted = append(aborted, id)
+	}
+	if want := []uint64{10, 8}; !reflect.DeepEqual(aborted, want) {
+		t.Errorf("aborted %v, want %v (the two below request %d)", aborted, want, unique)
+	}
+	kernel.close()
+	if err := <-done; err != nil {
+		t.Error(err)
+	}
+}

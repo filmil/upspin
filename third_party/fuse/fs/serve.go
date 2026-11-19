@@ -571,7 +571,10 @@ func (s *Server) Serve(fs FS) error {
 			}
 			return err
 		}
-		if s.abortLost > 0 {
+		// An interrupt names an older request, and the kernel sends
+		// it before others, so wait for an ordinary request. Its ID is
+		// even: the kernel marks interrupts with the lowest bit.
+		if _, isInterrupt := req.(*fuse.InterruptRequest); s.abortLost > 0 && !isInterrupt && req.Hdr().ID%lostRequestIDStep == 0 {
 			s.abortLostRequests(req.Hdr().ID)
 		}
 

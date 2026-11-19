@@ -6,4 +6,7 @@ package main // import "upspin.io/cmd/upspinfs"
 
 // sysMemfdCreate is unknown here; memFile then fails, and the supervisor
 // runs without a journal.
-const sysMemfdCreate = -1
+const (
+	sysMemfdCreate = 0
+	memfdKnown     = false
+)
