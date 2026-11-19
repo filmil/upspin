@@ -92,8 +92,9 @@ jobs:
         run: bazel test --registry=https://bcr.bazel.build --test_output=errors //...
 
   # The race detector on the packages that share state across goroutines:
-  # the packer registry and packers, the factotum, and the client. Kept
-  # to those packages so the job stays a few minutes long.
+  # the packer registry and packers, the factotum, the client, and
+  # upspinfs with its FUSE library. Kept to those packages so the job
+  # stays a few minutes long.
   race:
     runs-on: ubuntu-latest
     steps:
@@ -112,7 +113,7 @@ jobs:
           repository-cache: true
 
       - name: Bazel Test with the race detector
-        run: bazel test --@rules_go//go/config:race --test_output=errors //pack/... //factotum/... //client/...
+        run: bazel test --@rules_go//go/config:race --test_output=errors //pack/... //factotum/... //client/... //cmd/upspinfs/... //third_party/fuse/...
 
 
 
