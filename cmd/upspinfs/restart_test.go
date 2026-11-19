@@ -66,6 +66,9 @@ func (k *fakeKernel) call(op uint32, node uint64, args []byte) (syscall.Errno, [
 	buf := make([]byte, 1<<16)
 	for {
 		n, err := syscall.Read(k.fd, buf)
+		if err == syscall.EINTR {
+			continue
+		}
 		if err != nil {
 			k.t.Fatalf("reading the answer to op %d: %v", op, err)
 		}
