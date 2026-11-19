@@ -269,7 +269,7 @@ func (n *node) refreshStale() error {
 	if de.IsLink() {
 		n.link = upspin.PathName(de.Link)
 	}
-	size, err := lstatSize(de, n)
+	size, err := lstatSize(de)
 	if err != nil {
 		return e2e(errors.E(op, err))
 	}

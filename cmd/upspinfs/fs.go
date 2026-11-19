@@ -383,8 +383,11 @@ func (n *node) Mknod(context gContext.Context, req *fuse.MknodRequest) (fs.Node,
 // For both, we read the contents on open.
 func (n *node) Open(context gContext.Context, req *fuse.OpenRequest, resp *fuse.OpenResponse) (fs.Handle, error) {
 	const op errors.Op = "Open"
-	if n.deleted {
-		return nil, e2e(errors.E(op, errors.NotExist, n.uname))
+	n.Lock()
+	deleted, uname := n.deleted, n.uname
+	n.Unlock()
+	if deleted {
+		return nil, e2e(errors.E(op, errors.NotExist, uname))
 	}
 	if req.Dir {
 		return n.openDir(context, req, resp)
@@ -395,8 +398,11 @@ func (n *node) Open(context gContext.Context, req *fuse.OpenRequest, resp *fuse.
 // openDir opens the directory and reads its contents.
 func (n *node) openDir(context gContext.Context, req *fuse.OpenRequest, resp *fuse.OpenResponse) (fs.Handle, error) {
 	const op errors.Op = "Open"
-	if n.attr.Mode&os.ModeDir != os.ModeDir {
-		return nil, e2e(errors.E(op, errors.NotDir, n.uname))
+	n.Lock()
+	mode, uname := n.attr.Mode, n.uname
+	n.Unlock()
+	if mode&os.ModeDir != os.ModeDir {
+		return nil, e2e(errors.E(op, errors.NotDir, uname))
 	}
 	if n.t == rootNode {
 		// The root is a special case since it is a local fiction.
@@ -444,7 +450,7 @@ func (n *node) openDir(context gContext.Context, req *fuse.OpenRequest, resp *fu
 			continue
 		}
 		cn.Lock()
-		if sz, err := lstatSize(child, n); err == nil {
+		if sz, err := lstatSize(child); err == nil {
 			cn.attr.Size = sz
 		} else {
 			return nil, e2e(errors.E(op, err, n.uname))
@@ -594,7 +600,7 @@ func (n *node) Remove(context gContext.Context, req *fuse.RemoveRequest) error {
 // lstatSize returns a lstat-compatible size for the dir entry.  The size only
 // differs for symlinks.  Upspin's DirEntry size for a link is zero, but for
 // lstat, the size of the link is the size of the link content.
-func lstatSize(de *upspin.DirEntry, n *node) (uint64, error) {
+func lstatSize(de *upspin.DirEntry) (uint64, error) {
 	if !de.IsLink() {
 		s, err := de.Size()
 		return uint64(s), err
@@ -602,8 +608,9 @@ func lstatSize(de *upspin.DirEntry, n *node) (uint64, error) {
 	// It seems that upspin treats all symlinks that don't leave the filesystem
 	// as relative, so replicate that approach here.  This may have interesting
 	// side effects for programs that care about precise link content, like
-	// version control systems.
-	p, err := n.upspinPathToHostPath(de.Link)
+	// version control systems. The target is relative to the link itself,
+	// as Readlink returns it.
+	p, err := relativeLink(de.Name, de.Link)
 	if err != nil {
 		return 0, err
 	}
@@ -658,7 +665,7 @@ func (n *node) Lookup(context gContext.Context, name string) (fs.Node, error) {
 	if de.IsLink() {
 		mode |= os.ModeSymlink
 	}
-	size, err := lstatSize(de, n)
+	size, err := lstatSize(de)
 	if err != nil {
 		f.removeMapping(uname)
 		return nil, e2e(errors.E(op, n.uname, err))
@@ -739,7 +746,10 @@ func (f *upspinFS) removeMapping(uname upspin.PathName) {
 
 // Forget implements  fs.Forgetter.Forget.
 func (n *node) Forget() {
-	n.f.removeMapping(n.uname)
+	n.Lock()
+	uname := n.uname
+	n.Unlock()
+	n.f.removeMapping(uname)
 }
 
 // Setattr implements fs.NodeSetattrer.Setattr.
@@ -1047,6 +1057,12 @@ func (n *node) Symlink(ctx gContext.Context, req *fuse.SymlinkRequest) (fs.Node,
 	log.Debug.Printf("Symlink target %q", upspinPath)
 	nn := n.f.allocNode(n, req.NewName, os.ModeSymlink|unixPermissions, uint64(len(upspinPath)), time.Now())
 	nn.link = upspinPath
+	// The size of a link is the length of what Readlink returns, which is
+	// the target relative to the link, as lstatSize computes it for links
+	// found by Lookup and Watch.
+	if rel, err := nn.upspinPathToHostPath(upspinPath); err == nil {
+		nn.attr.Size = uint64(len(rel))
+	}
 	if err := n.f.cache.putRedirect(nn, upspinPath); err != nil {
 		return nil, e2e(errors.E(op, n.uname, err))
 	}
@@ -1056,9 +1072,15 @@ func (n *node) Symlink(ctx gContext.Context, req *fuse.SymlinkRequest) (fs.Node,
 }
 
 // upspinPathToHostPath takes an Upspin path, target, and turns it into a host path relative
-// to the Upspin path, link.
+// to the Upspin path, link. It reads link.uname, so link must be locked. It
+// takes no locks itself.
 func (link *node) upspinPathToHostPath(target upspin.PathName) (string, error) {
-	parsedLink, err := path.Parse(link.uname)
+	return relativeLink(link.uname, target)
+}
+
+// relativeLink returns target as a host path relative to the link linkName.
+func relativeLink(linkName, target upspin.PathName) (string, error) {
+	parsedLink, err := path.Parse(linkName)
 	if err != nil {
 		return "", e2e(err)
 	}
@@ -1087,7 +1109,8 @@ func (link *node) upspinPathToHostPath(target upspin.PathName) (string, error) {
 
 // Symlink implements fs.NodeReadlinker.Readlink.
 func (n *node) Readlink(ctx gContext.Context, req *fuse.ReadlinkRequest) (string, error) {
-	// Watch events and refreshes change n.link and n.uname with n locked.
+	// Watch events and refreshes change n.link with n locked, and renames
+	// change n.uname, which upspinPathToHostPath and the log line read.
 	n.Lock()
 	defer n.Unlock()
 	log.Debug.Printf("Readlink %q -> %q", n, n.link)

@@ -202,7 +202,7 @@ func (w *watchedRoots) refresh(n *node) error {
 	if de.IsLink() {
 		mode |= os.ModeSymlink
 	}
-	size, err := lstatSize(de, n)
+	size, err := lstatSize(de)
 	if err != nil {
 		n.f.removeMapping(n.uname)
 		return e2e(errors.E(op, err))
@@ -397,7 +397,7 @@ func (d *watchedRoot) handleEvent(e *upspin.Event) error {
 		if e.Entry.IsLink() {
 			mode |= os.ModeSymlink
 		}
-		size, err := lstatSize(e.Entry, n)
+		size, err := lstatSize(e.Entry)
 		if err == nil {
 			n.attr.Size = size
 		} else {
