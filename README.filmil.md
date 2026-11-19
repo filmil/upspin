@@ -150,14 +150,18 @@ With `-supervise`, upspinfs runs as two processes.
 Requests that the dead server had read and not answered fail with `EIO`.
 The kernel would otherwise wait for them forever; Linux 6.9 and later could
 resend them instead (`FUSE_NOTIFY_RESEND`), which upspinfs does not use yet.
-The new server answers the 4096 request IDs below its first request with
+The new server answers the 65536 request IDs below its first request with
 `EIO`; the kernel ignores the ones it is not waiting for.
+A lost request older than that still waits forever.
 
 `-hang_timeout`, off by default, also restarts a server that lives but stops
 answering.
 The supervisor looks up a name that the server answers from memory, and
 restarts the server when that lookup gets no answer in time while requests
 are waiting.
+It reads the waiting requests from `/sys/fs/fuse/connections`, so it needs
+the fusectl file system mounted there; without it the flag is off and the
+supervisor says so.
 
 `cmd/upspinfs/killtest` kills the server in the middle of reads, writes and
 concurrent requests, and stops it with SIGSTOP to test `-hang_timeout`.

@@ -3,4 +3,7 @@
 package main // import "upspin.io/cmd/upspinfs"
 
 // sysMemfdCreate is the number of the memfd_create system call.
-const sysMemfdCreate = 319
+const (
+	sysMemfdCreate = 319
+	memfdKnown     = true
+)

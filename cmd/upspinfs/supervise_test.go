@@ -39,10 +39,30 @@ func TestMemFile(t *testing.T) {
 	if _, err := f.WriteAt([]byte("x"), 0); err != nil {
 		t.Fatal(err)
 	}
-	j, _, err := openJournal(f)
-	if err == nil || j != nil {
-		// One byte is not a journal; the point is that the file works.
-		t.Logf("openJournal on a 1 byte file: %v", err)
+	buf := make([]byte, 1)
+	if _, err := f.ReadAt(buf, 0); err != nil || buf[0] != 'x' {
+		t.Errorf("read back %q, %v", buf, err)
+	}
+	if _, _, err := openJournal(f); err == nil {
+		t.Error("openJournal accepted one byte as a journal")
+	}
+}
+
+func TestMountMinor(t *testing.T) {
+	const info = `22 1 0:21 / /proc rw - proc proc rw
+290 30 0:290 / /tmp/a\040b rw - fuse.upspin upspin rw
+291 30 0:41 / /tmp/c rw - fuse.upspin upspin rw
+292 291 0:77 / /tmp/c rw - fuse.upspin upspin rw
+`
+	tests := map[string]string{
+		"/tmp/a b": "290",
+		"/tmp/c":   "77", // The upper of two stacked mounts.
+		"/tmp/d":   "",
+	}
+	for mp, want := range tests {
+		if got := mountMinor(info, mp); got != want {
+			t.Errorf("mountMinor(%q) = %q, want %q", mp, got, want)
+		}
 	}
 }
 

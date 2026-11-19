@@ -36,7 +36,7 @@ var (
 	mountpointFlag = flag.String("mountpoint", "", "`directory` on which to mount file system")
 	allowOther     = flag.Bool("allow_other", false, "if set, allow other users to see the mount point; if using this option ensure that mount point access is strictly controlled")
 	superviseFlag  = flag.Bool("supervise", false, "if set, keep the mount alive when the server process dies, and restart it (Linux only)")
-	hangTimeout    = flag.Duration("hang_timeout", 0, "with -supervise, restart the server when a lookup of the user's root gets no answer for this `duration`; 0 turns it off")
+	hangTimeout    = flag.Duration("hang_timeout", 0, "with -supervise, restart the server when it answers no request for this `duration` while requests wait; 0 turns it off (needs /sys/fs/fuse/connections)")
 
 	// Set by the supervisor for the server process it starts.
 	fuseFDFlag    = flag.Int("fuse_fd", -1, "internal: `descriptor` of a mounted /dev/fuse to serve")
