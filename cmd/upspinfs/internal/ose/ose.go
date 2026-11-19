@@ -60,6 +60,7 @@ var state = struct {
 type File struct {
 	name string
 	f    *os.File
+	key  []byte // The AES key of benc.
 	benc cipher.Block
 	refs int
 	size int64
@@ -81,11 +82,11 @@ func OpenFile(name string, flag int, mode os.FileMode) (*File, error) {
 	if ok {
 		file.f.Close()
 	} else {
-		benc, err := newBenc()
+		key, benc, err := newBenc()
 		if err != nil {
 			return nil, err
 		}
-		file = &File{name: name, benc: benc}
+		file = &File{name: name, key: key, benc: benc}
 		state.nameToFile[name] = file
 	}
 	file.f = f
@@ -107,11 +108,11 @@ func Create(name string) (*File, error) {
 	if ok {
 		file.f.Close()
 	} else {
-		benc, err := newBenc()
+		key, benc, err := newBenc()
 		if err != nil {
 			return nil, err
 		}
-		file = &File{name: name, benc: benc}
+		file = &File{name: name, key: key, benc: benc}
 		state.nameToFile[name] = file
 	}
 	file.f = f
@@ -249,18 +250,61 @@ func (file *File) WriteAt(b []byte, off int64) (int, error) {
 
 const aesKeyLen = 32
 
-func newBenc() (cipher.Block, error) {
+func newBenc() ([]byte, cipher.Block, error) {
 	k := make([]byte, aesKeyLen)
 	if _, err := rand.Read(k); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// Create an Xcrypter.
 	benc, err := aes.NewCipher(k)
 	if err != nil {
+		return nil, nil, err
+	}
+	return k, benc, nil
+}
+
+// Key returns a copy of the key of the named file, so that a later process
+// can open the file with OpenFileWithKey. The key decrypts the file; keep it
+// off disks.
+func Key(name string) ([]byte, bool) {
+	state.Lock()
+	defer state.Unlock()
+	file, ok := state.nameToFile[name]
+	if !ok {
+		return nil, false
+	}
+	return append([]byte(nil), file.key...), true
+}
+
+// OpenFileWithKey opens an encrypted file that an earlier process wrote,
+// with the key that Key returned there.
+func OpenFileWithKey(name string, flag int, mode os.FileMode, key []byte) (*File, error) {
+	if len(key) != aesKeyLen {
+		return nil, fmt.Errorf("ose: key of %d bytes, want %d", len(key), aesKeyLen)
+	}
+	benc, err := aes.NewCipher(key)
+	if err != nil {
 		return nil, err
 	}
-	return benc, nil
+	f, err := os.OpenFile(name, flag, mode)
+	if err != nil {
+		return nil, err
+	}
+	st, err := f.Stat()
+	if err != nil {
+		f.Close()
+		return nil, err
+	}
+	state.Lock()
+	defer state.Unlock()
+	if old, ok := state.nameToFile[name]; ok && old.f != nil {
+		old.f.Close()
+	}
+	file := &File{name: name, f: f, key: append([]byte(nil), key...), benc: benc, refs: 1, size: st.Size()}
+	state.nameToFile[name] = file
+	state.toRemove.Remove(name)
+	return file, nil
 }
 
 func (file *File) xor(b []byte, off int64) {

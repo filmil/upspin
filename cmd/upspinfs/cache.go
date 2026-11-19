@@ -23,6 +23,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"io"
+	stdos "os"
 	filepath "path"
 	"strings"
 	"sync"
@@ -89,13 +90,42 @@ var cacheBlocksLoaded int64
 
 func newCache(config upspin.Config, dir string, cacheSize int64) *cache {
 	c := &cache{dir: dir, client: client.New(config), lru: lrucache.NewLRU(maxRefs), lruMaxBytes: cacheSize}
-	os.Mkdir(dir, cacheDirPerms)
-
-	// Clean out all cache files.
-	os.RemoveAll(dir)
 	os.MkdirAll(filepath.Join(dir, "tmp"), cacheDirPerms)
-
 	return c
+}
+
+// removeAllExcept removes the cache files of an earlier process, except the
+// ones in keep. Their encryption keys died with that process, unless the
+// journal kept them, so the files cannot be read. It must run before the file
+// system serves requests.
+func (c *cache) removeAllExcept(keep map[string]bool) {
+	c.Lock()
+	defer c.Unlock()
+	entries, err := stdos.ReadDir(c.dir)
+	if err != nil {
+		log.Error.Printf("upspinfs: reading cache directory: %v", err)
+	}
+	for _, e := range entries {
+		sub := filepath.Join(c.dir, e.Name())
+		if !e.IsDir() {
+			os.Remove(sub)
+			continue
+		}
+		files, _ := stdos.ReadDir(sub)
+		for _, f := range files {
+			name := filepath.Join(sub, f.Name())
+			if keep[name] {
+				// New temporary files must not reuse the name.
+				var n int
+				if _, err := fmt.Sscanf(f.Name(), "%d", &n); err == nil && e.Name() == "tmp" && n >= c.next {
+					c.next = n + 1
+				}
+				continue
+			}
+			os.RemoveAll(name)
+		}
+	}
+	os.MkdirAll(filepath.Join(c.dir, "tmp"), cacheDirPerms)
 }
 
 // cacheName builds a path to the local cachefile from all the Locations making up the file.
@@ -143,6 +173,7 @@ func (c *cache) create(h *handle) error {
 	// set the sequence for this file to SeqNotExist thus conditioning writeback
 	// succeeding on none else having created the file in the mean time.
 	h.n.seq = upspin.SeqNotExist
+	h.n.f.setCache(h.n, cf.journalRecord())
 
 	return nil
 }
@@ -354,6 +385,9 @@ func (cf *cachedFile) close() {
 	if cf == nil || cf.file == nil {
 		return
 	}
+	if cf.n != nil {
+		cf.n.f.setCache(cf.n, nil)
+	}
 	// Use the size of bytes cached rather than of the whole file.
 	info, err := cf.file.Stat()
 	if err != nil {
@@ -441,6 +475,7 @@ func (cf *cachedFile) clone(size int64) error {
 	cf.file = file
 	cf.dirty = true
 	cf.inStore = false
+	cf.n.f.setCache(cf.n, cf.journalRecord())
 	return nil
 }
 
@@ -572,6 +607,7 @@ func (cf *cachedFile) writeback(n *node) error {
 				cf.file.Pin()
 				// quit trying to write it back.
 				cf.dirty = false
+				n.f.setCache(n, nil)
 				return nil
 			}
 			return errors.E(op, err)
@@ -592,7 +628,30 @@ func (cf *cachedFile) writeback(n *node) error {
 	cf.fname = fname
 	cf.dirty = false
 	cf.inStore = true
+	n.f.setCache(n, nil)
 	return nil
+}
+
+// journalRecord returns the journal record of a dirty cache file. Called with
+// the node locked.
+func (cf *cachedFile) journalRecord() *journalCache {
+	key, ok := os.Key(cf.fname)
+	if !ok {
+		return nil
+	}
+	return &journalCache{seq: cf.n.seq, fname: cf.fname, key: key}
+}
+
+// ensureCache opens the cache file of a node whose handles were restored
+// after a restart and have not been used since. Called with n locked.
+func (n *node) ensureCache() error {
+	if n.cf != nil {
+		return nil
+	}
+	for h := range n.handles {
+		return n.f.cache.open(h, h.flags)
+	}
+	return errors.E(errors.IO, n.uname, "no open handle")
 }
 
 // putRedirect assumes that the target fits in a single block.

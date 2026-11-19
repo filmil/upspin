@@ -66,6 +66,9 @@ func (k *fakeKernel) call(op uint32, node uint64, args []byte) (syscall.Errno, [
 	buf := make([]byte, 1<<16)
 	for {
 		n, err := syscall.Read(k.fd, buf)
+		if err == syscall.EINTR {
+			continue
+		}
 		if err != nil {
 			k.t.Fatalf("reading the answer to op %d: %v", op, err)
 		}
@@ -108,6 +111,69 @@ func (k *fakeKernel) rename(dir uint64, oldName, newName string) {
 	if errno, _ := k.call(opRename, dir, args); errno != 0 {
 		k.t.Fatalf("rename %q to %q: %v", oldName, newName, errno)
 	}
+}
+
+// FUSE operation codes used below.
+const (
+	opRead    = 15
+	opWrite   = 16
+	opRelease = 18
+	opOpen    = 14
+	opCreate  = 35
+)
+
+// open opens a file and returns the handle.
+func (k *fakeKernel) open(node uint64, flags uint32) uint64 {
+	k.t.Helper()
+	args := make([]byte, 8)
+	binary.NativeEndian.PutUint32(args, flags)
+	errno, body := k.call(opOpen, node, args)
+	if errno != 0 {
+		k.t.Fatalf("open of node %d: %v", node, errno)
+	}
+	return binary.NativeEndian.Uint64(body)
+}
+
+// create creates and opens name in the directory parent.
+func (k *fakeKernel) create(parent uint64, name string, flags uint32) (id, handle uint64) {
+	k.t.Helper()
+	args := make([]byte, 16, 16+len(name)+1)
+	binary.NativeEndian.PutUint32(args[0:], flags)
+	binary.NativeEndian.PutUint32(args[4:], 0o600)
+	args = append(append(args, name...), 0)
+	errno, body := k.call(opCreate, parent, args)
+	if errno != 0 {
+		k.t.Fatalf("create %q: %v", name, errno)
+	}
+	// The entry comes first and the open result, 16 bytes, last.
+	return binary.NativeEndian.Uint64(body), binary.NativeEndian.Uint64(body[len(body)-16:])
+}
+
+func (k *fakeKernel) write(node, handle uint64, off int64, data string) syscall.Errno {
+	k.t.Helper()
+	args := make([]byte, 40, 40+len(data))
+	binary.NativeEndian.PutUint64(args[0:], handle)
+	binary.NativeEndian.PutUint64(args[8:], uint64(off))
+	binary.NativeEndian.PutUint32(args[16:], uint32(len(data)))
+	errno, _ := k.call(opWrite, node, append(args, data...))
+	return errno
+}
+
+func (k *fakeKernel) read(node, handle uint64, size uint32) (syscall.Errno, string) {
+	k.t.Helper()
+	args := make([]byte, 40)
+	binary.NativeEndian.PutUint64(args[0:], handle)
+	binary.NativeEndian.PutUint32(args[16:], size)
+	errno, body := k.call(opRead, node, args)
+	return errno, string(body)
+}
+
+func (k *fakeKernel) release(node, handle uint64) syscall.Errno {
+	k.t.Helper()
+	args := make([]byte, 24)
+	binary.NativeEndian.PutUint64(args[0:], handle)
+	errno, _ := k.call(opRelease, node, args)
+	return errno
 }
 
 // getattr returns the inode number and size of a node.
@@ -268,18 +334,112 @@ func TestForgottenNodeLeavesJournal(t *testing.T) {
 	}
 }
 
-// TestRestoreReleasesLostHandles checks that handles which cannot be restored
-// leave the journal, so that they are not reported again.
+// TestRestoreReleasesLostHandles checks that a handle of a node the journal
+// does not know leaves the journal, so that it is not reported again.
 func TestRestoreReleasesLostHandles(t *testing.T) {
 	jf := tempJournal(t)
 	j, _ := mustOpenJournal(t, jf)
 	j.putNode(2, journalNode{inode: 5, refs: 1, path: testConfig.user + "/x", mapped: true})
 	j.putHandle(3, journalHandle{node: 2})
+	j.putHandle(4, journalHandle{node: 9})
 	j, st := mustOpenJournal(t, jf)
 	f := newUpspinFS(testConfig.cfg, t.TempDir(), t.TempDir(), maxBytes)
 	f.journal = j
-	f.restore(st)
-	if len(j.live.handles) != 0 {
-		t.Errorf("handles after restore: %v", j.live.handles)
+	tables := f.restore(st)
+	if len(tables.Handles) != 1 || tables.Handles[0].ID != 3 {
+		t.Errorf("restored handles: %+v", tables.Handles)
+	}
+	if _, ok := j.live.handles[4]; ok || len(j.live.handles) != 1 {
+		t.Errorf("handles in the journal after restore: %v", j.live.handles)
+	}
+}
+
+// TestRestartKeepsOpenFiles stops upspinfs while a file is open for reading
+// and a new file holds writes that were not put. The next upspinfs serves
+// both handles and puts the unsaved writes.
+func TestRestartKeepsOpenFiles(t *testing.T) {
+	const (
+		oRDONLY = 0
+		oRDWR   = 2
+	)
+	user := testConfig.user
+	c := client.New(testConfig.cfg)
+	dir := upspin.PathName(user + "/reopen")
+	if _, err := c.MakeDirectory(dir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Put(dir+"/readme", []byte("read me")); err != nil {
+		t.Fatal(err)
+	}
+
+	jf := tempJournal(t)
+	j, _ := mustOpenJournal(t, jf)
+	cacheDir := t.TempDir()
+	first := newUpspinFS(testConfig.cfg, t.TempDir(), cacheDir, maxBytes)
+	first.journal = j
+	kernel, stop := serveFS(t, first, nil)
+	userID, _ := kernel.lookup(1, user)
+	dirID, _ := kernel.lookup(userID, "reopen")
+	readID, _ := kernel.lookup(dirID, "readme")
+	readFh := kernel.open(readID, oRDONLY)
+	if errno, data := kernel.read(readID, readFh, 100); errno != 0 || data != "read me" {
+		t.Fatalf("read before the restart: %v, %q", errno, data)
+	}
+	newID, newFh := kernel.create(dirID, "new", oRDWR)
+	if errno := kernel.write(newID, newFh, 0, "unsaved data"); errno != 0 {
+		t.Fatalf("write before the restart: %v", errno)
+	}
+	// upspinfs dies before the kernel releases either handle.
+	stop()
+	if first.journal == nil {
+		t.Fatal("the journal failed")
+	}
+	if data, err := c.Get(dir + "/new"); err == nil && string(data) == "unsaved data" {
+		t.Fatal("the write reached the store before the restart; the test proves nothing")
+	}
+
+	j, st := mustOpenJournal(t, jf)
+	second := newUpspinFS(testConfig.cfg, t.TempDir(), cacheDir, maxBytes)
+	second.journal = j
+	tables := second.restore(st)
+	kernel, stop = serveFS(t, second, &tables)
+	defer stop()
+
+	if errno, data := kernel.read(newID, newFh, 100); errno != 0 || data != "unsaved data" {
+		t.Errorf("read of the unsaved writes after the restart: %v, %q", errno, data)
+	}
+	if errno, data := kernel.read(readID, readFh, 100); errno != 0 || data != "read me" {
+		t.Errorf("read through the restored read handle: %v, %q", errno, data)
+	}
+
+	second.finishRestoredWrites()
+	if data, err := c.Get(dir + "/new"); err != nil || string(data) != "unsaved data" {
+		t.Errorf("store after finishRestoredWrites: %v, %q", err, data)
+	}
+	second.jmu.Lock()
+	caches := len(second.journal.live.caches)
+	second.jmu.Unlock()
+	if caches != 0 {
+		t.Errorf("%d cache files in the journal after the write back", caches)
+	}
+
+	// The restored handle keeps working.
+	if errno := kernel.write(newID, newFh, int64(len("unsaved data")), " and more"); errno != 0 {
+		t.Errorf("write after the restart: %v", errno)
+	}
+	if errno := kernel.release(newID, newFh); errno != 0 {
+		t.Errorf("release after the restart: %v", errno)
+	}
+	if errno := kernel.release(readID, readFh); errno != 0 {
+		t.Errorf("release of the read handle: %v", errno)
+	}
+	if data, err := c.Get(dir + "/new"); err != nil || string(data) != "unsaved data and more" {
+		t.Errorf("store after release: %v, %q", err, data)
+	}
+	second.jmu.Lock()
+	handles := len(second.journal.live.handles)
+	second.jmu.Unlock()
+	if handles != 0 {
+		t.Errorf("%d handles in the journal after both releases", handles)
 	}
 }

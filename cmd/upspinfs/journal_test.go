@@ -55,6 +55,10 @@ func writeSample(j *journal) journalState {
 	j.putHandle(2, journalHandle{node: 3})
 	j.releaseHandle(2)
 	j.setPath(99, "ignored, no such node")
+	j.putCache(2, journalCache{seq: -1, fname: "/c/tmp/7", key: []byte("0123456789abcdef0123456789abcdef")})
+	j.putCache(3, journalCache{seq: 4, fname: "/c/tmp/8", key: []byte("k")})
+	j.dropCache(3)
+	j.putCache(4, journalCache{seq: 1, fname: "/c/tmp/9"}) // Node 4 is forgotten.
 	return journalState{
 		nodes: map[fuse.NodeID]journalNode{
 			1: {inode: 1, refs: 2, mode: uint32(os.ModeDir | 0o500)},
@@ -62,6 +66,7 @@ func writeSample(j *journal) journalState {
 			3: {inode: 6, gen: 1, refs: 3, mode: 0o700, path: "u@x.com/c"},
 		},
 		handles: map[fuse.HandleID]journalHandle{1: {node: 2, flags: uint32(fuse.OpenReadWrite)}},
+		caches:  map[fuse.NodeID]journalCache{2: {seq: -1, fname: "/c/tmp/7", key: []byte("0123456789abcdef0123456789abcdef")}},
 		maxGen:  9,
 	}
 }
@@ -278,5 +283,35 @@ func TestJournalWriteErrorIsKept(t *testing.T) {
 	j.putNode(2, journalNode{inode: 5, refs: 1})
 	if j.err == nil {
 		t.Error("a write to a closed file did not set the error")
+	}
+}
+
+// TestRemoveAllExcept checks that a restart keeps exactly the cache files in
+// use and that new temporary files do not reuse their names.
+func TestRemoveAllExcept(t *testing.T) {
+	dir := t.TempDir()
+	c := newCache(testConfig.cfg, dir, maxBytes)
+	keep := filepath.Join(dir, "tmp", "7")
+	for _, name := range []string{keep, filepath.Join(dir, "tmp", "3"), filepath.Join(dir, "ab", "abcdef")} {
+		if err := os.MkdirAll(filepath.Dir(name), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(name, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	c.removeAllExcept(map[string]bool{keep: true})
+	var left []string
+	filepath.Walk(dir, func(p string, info os.FileInfo, err error) error {
+		if err == nil && !info.IsDir() {
+			left = append(left, p)
+		}
+		return nil
+	})
+	if !reflect.DeepEqual(left, []string{keep}) {
+		t.Errorf("files left: %v, want only %s", left, keep)
+	}
+	if got := c.mkTemp(); got == keep || got != filepath.Join(dir, "tmp", "8") {
+		t.Errorf("next temporary file %s, want %s", got, filepath.Join(dir, "tmp", "8"))
 	}
 }

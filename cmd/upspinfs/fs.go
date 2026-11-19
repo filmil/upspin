@@ -73,6 +73,10 @@ type upspinFS struct {
 	jmu     sync.Mutex
 	journal *journal              // Nil if the tables are not kept.
 	byID    map[fuse.NodeID]*node // The node of each kernel node ID.
+
+	// restoredWrites are restored nodes whose cache files hold writes
+	// that were not put before the restart.
+	restoredWrites []*node
 }
 
 type nodeType uint8
@@ -115,6 +119,7 @@ type node struct {
 	jpath    string      // The path name the journal knows.
 	jmode    uint32      // The mode the node was created with.
 	jmapped  bool        // Whether f.nodeMap maps jpath to this node.
+	jcache   *journalCache // The journaled cache file with unsaved writes.
 }
 
 func (n *node) String() string {
@@ -758,6 +763,10 @@ func (n *node) Setattr(context gContext.Context, req *fuse.SetattrRequest, resp 
 		//    a cached file, truncate, and write back to dir/store.
 		n.Lock()
 		if len(n.handles) > 0 {
+			if err := n.ensureCache(); err != nil {
+				n.Unlock()
+				return e2e(errors.E(op, n.uname, err))
+			}
 			if err := n.cf.truncate(n, int64(req.Size)); err != nil {
 				n.Unlock()
 				return e2e(errors.E(op, n.uname, err))
@@ -850,6 +859,9 @@ func (h *handle) Read(context gContext.Context, req *fuse.ReadRequest, resp *fus
 	const op errors.Op = "Read"
 	h.n.Lock()
 	defer h.n.Unlock()
+	if err := h.n.ensureCache(); err != nil {
+		return e2e(errors.E(op, h.n.uname, err))
+	}
 	resp.Data = make([]byte, cap(resp.Data))
 	n, err := h.n.cf.readAt(resp.Data, req.Offset)
 	if n != len(resp.Data) {
@@ -870,6 +882,9 @@ func (h *handle) Write(context gContext.Context, req *fuse.WriteRequest, resp *f
 	const op errors.Op = "Write"
 	h.n.Lock()
 	defer h.n.Unlock()
+	if err := h.n.ensureCache(); err != nil {
+		return e2e(errors.E(op, h.n.uname, err))
+	}
 	n, err := h.n.cf.writeAt(req.Data, req.Offset)
 	if err != nil {
 		err = e2e(errors.E(op, h.n.uname, err))
@@ -1111,6 +1126,7 @@ func do(cfg upspin.Config, mountpoint string, cacheDir string, cacheSize int64, 
 	}
 
 	f := newUpspinFS(cfg, mountpoint, cacheDir, cacheSize)
+	f.cache.removeAllExcept(nil)
 
 	opts := []fuse.MountOption{
 		fuse.FSName("upspin"),
