@@ -252,9 +252,9 @@ func (h *handle) freeNoLock() {
 // Attr implements fs.Node.Attr.
 func (n *node) Attr(addscontext gContext.Context, attr *fuse.Attr) error {
 	const op errors.Op = "Attr"
-	log.Debug.Printf("Attr %s %v %s", n, n.attr, n.attr.Mtime)
 	n.Lock()
 	defer n.Unlock()
+	log.Debug.Printf("Attr %s %v %s", n, n.attr, n.attr.Mtime)
 	if n.deleted {
 		return e2e(errors.E(op, errors.NotExist, n.uname))
 	}
@@ -1087,6 +1087,9 @@ func (link *node) upspinPathToHostPath(target upspin.PathName) (string, error) {
 
 // Symlink implements fs.NodeReadlinker.Readlink.
 func (n *node) Readlink(ctx gContext.Context, req *fuse.ReadlinkRequest) (string, error) {
+	// Watch events and refreshes change n.link and n.uname with n locked.
+	n.Lock()
+	defer n.Unlock()
 	log.Debug.Printf("Readlink %q -> %q", n, n.link)
 	return n.upspinPathToHostPath(n.link)
 }
