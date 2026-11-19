@@ -6,11 +6,11 @@ go_library(
         "serve.go",
         "tree.go",
     ],
-    importpath = "upspin.io/cmd/upspinfs/internal/fuse/fs",
-    visibility = ["//cmd/upspinfs:__subpackages__"],
+    importpath = "upspin.io/third_party/fuse/fs",
+    visibility = ["//visibility:public"],
     deps = [
-        "//cmd/upspinfs/internal/fuse",
-        "//cmd/upspinfs/internal/fuse/fuseutil",
+        "//third_party/fuse",
+        "//third_party/fuse/fuseutil",
     ],
 )
 
@@ -23,5 +23,5 @@ go_test(
     embed = [":fs"],
     # TestAdoptedMountAnswers mounts a real FUSE file system.
     tags = ["no-sandbox"],
-    deps = ["//cmd/upspinfs/internal/fuse"],
+    deps = ["//third_party/fuse"],
 )

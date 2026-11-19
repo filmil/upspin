@@ -8,7 +8,7 @@ import (
 	"os"
 	"testing"
 
-	"upspin.io/cmd/upspinfs/internal/fuse"
+	"upspin.io/third_party/fuse"
 )
 
 func TestAdoptRejectsBadInput(t *testing.T) {

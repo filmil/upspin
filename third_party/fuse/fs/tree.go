@@ -9,7 +9,7 @@ import (
 	"strings"
 	"syscall"
 
-	"upspin.io/cmd/upspinfs/internal/fuse"
+	"upspin.io/third_party/fuse"
 )
 
 // A Tree implements a basic read-only directory tree for FUSE.

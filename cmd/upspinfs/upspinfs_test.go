@@ -21,7 +21,7 @@ import (
 	"testing"
 	"time"
 
-	"upspin.io/cmd/upspinfs/internal/fuse"
+	"upspin.io/third_party/fuse"
 
 	"upspin.io/bind"
 	"upspin.io/client"

@@ -1,0 +1,9 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "fuseutil",
+    srcs = ["fuseutil.go"],
+    importpath = "upspin.io/third_party/fuse/fuseutil",
+    visibility = ["//visibility:public"],
+    deps = ["//third_party/fuse"],
+)

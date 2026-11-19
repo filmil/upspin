@@ -1,7 +1,7 @@
-package fuseutil // import "upspin.io/cmd/upspinfs/internal/fuse/fuseutil"
+package fuseutil // import "upspin.io/third_party/fuse/fuseutil"
 
 import (
-	"upspin.io/cmd/upspinfs/internal/fuse"
+	"upspin.io/third_party/fuse"
 )
 
 // HandleRead handles a read request assuming that data is the entire file content.
