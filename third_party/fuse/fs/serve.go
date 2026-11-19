@@ -1,6 +1,6 @@
 // FUSE service loop, for servers that wish to use it.
 
-package fs // import "upspin.io/cmd/upspinfs/internal/fuse/fs"
+package fs // import "upspin.io/third_party/fuse/fs"
 
 import (
 	"bytes"
@@ -18,8 +18,8 @@ import (
 	"syscall"
 	"time"
 
-	"upspin.io/cmd/upspinfs/internal/fuse"
-	"upspin.io/cmd/upspinfs/internal/fuse/fuseutil"
+	"upspin.io/third_party/fuse"
+	"upspin.io/third_party/fuse/fuseutil"
 )
 
 const (

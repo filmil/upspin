@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"upspin.io/cmd/upspinfs/internal/fuse"
+	"upspin.io/third_party/fuse"
 )
 
 // The FUSE message layout used by fakeKernel.

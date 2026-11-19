@@ -98,7 +98,7 @@
 // Behavior and metadata of the mounted file system can be changed by
 // passing MountOption values to Mount.
 //
-package fuse // import "upspin.io/cmd/upspinfs/internal/fuse"
+package fuse // import "upspin.io/third_party/fuse"
 
 import (
 	"bytes"

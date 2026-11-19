@@ -19,8 +19,8 @@ import (
 
 	gContext "golang.org/x/net/context"
 
-	"upspin.io/cmd/upspinfs/internal/fuse"
-	"upspin.io/cmd/upspinfs/internal/fuse/fs"
+	"upspin.io/third_party/fuse"
+	"upspin.io/third_party/fuse/fs"
 
 	"upspin.io/access"
 	"upspin.io/bind"

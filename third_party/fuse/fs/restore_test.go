@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"upspin.io/cmd/upspinfs/internal/fuse"
+	"upspin.io/third_party/fuse"
 )
 
 type testNode struct{ name string }

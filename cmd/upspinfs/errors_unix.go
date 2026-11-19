@@ -11,7 +11,7 @@ import (
 	"strings"
 	"syscall"
 
-	"upspin.io/cmd/upspinfs/internal/fuse"
+	"upspin.io/third_party/fuse"
 
 	"upspin.io/errors"
 	"upspin.io/log"
