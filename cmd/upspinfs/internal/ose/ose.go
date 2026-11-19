@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+//go:build !windows
 // +build !windows
 
 /*
@@ -20,6 +21,7 @@ The arguments to exported functions are the same as the equivalent os pkg functi
 package ose // import "upspin.io/cmd/upspinfs/internal/ose"
 
 import (
+	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
@@ -298,8 +300,20 @@ func OpenFileWithKey(name string, flag int, mode os.FileMode, key []byte) (*File
 	}
 	state.Lock()
 	defer state.Unlock()
-	if old, ok := state.nameToFile[name]; ok && old.f != nil {
-		old.f.Close()
+	if old, ok := state.nameToFile[name]; ok {
+		if !bytes.Equal(old.key, key) {
+			f.Close()
+			return nil, fmt.Errorf("ose: %s is known with another key", name)
+		}
+		// The same file, as OpenFile would reopen it.
+		if old.f != nil {
+			old.f.Close()
+		}
+		old.f = f
+		old.refs++
+		old.size = st.Size()
+		state.toRemove.Remove(name)
+		return old, nil
 	}
 	file := &File{name: name, f: f, key: append([]byte(nil), key...), benc: benc, refs: 1, size: st.Size()}
 	state.nameToFile[name] = file

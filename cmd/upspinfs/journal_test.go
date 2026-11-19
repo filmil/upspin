@@ -315,3 +315,13 @@ func TestRemoveAllExcept(t *testing.T) {
 		t.Errorf("next temporary file %s, want %s", got, filepath.Join(dir, "tmp", "8"))
 	}
 }
+
+func TestJournalForgetDropsCache(t *testing.T) {
+	j, _ := mustOpenJournal(t, tempJournal(t))
+	j.putNode(2, journalNode{inode: 5, refs: 1, path: "u@x.com/a", mapped: true})
+	j.putCache(2, journalCache{seq: 1, fname: "/c/tmp/1"})
+	j.forgetNode(2)
+	if len(j.live.caches) != 0 {
+		t.Errorf("caches after the node was forgotten: %v", j.live.caches)
+	}
+}
