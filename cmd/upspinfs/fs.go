@@ -71,7 +71,8 @@ type upspinFS struct {
 	// jmu protects journal and the journal fields of every node. Lock
 	// order: the Server table lock, then f's lock, then jmu.
 	jmu     sync.Mutex
-	journal *journal // Nil if the tables are not kept.
+	journal *journal              // Nil if the tables are not kept.
+	byID    map[fuse.NodeID]*node // The node of each kernel node ID.
 }
 
 type nodeType uint8
@@ -146,6 +147,7 @@ func newUpspinFS(config upspin.Config, mountpoint string, cacheDir string, cache
 		userDirs:   make(map[string]bool),
 		nodeMap:    make(map[upspin.PathName]*node),
 		enoentMap:  make(map[upspin.PathName]time.Time),
+		byID:       make(map[fuse.NodeID]*node),
 	}
 	f.cache = newCache(config, cacheDir+"/fscache", cacheSize)
 	f.watched = newWatchedDirs(f)

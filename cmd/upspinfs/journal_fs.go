@@ -6,6 +6,7 @@ package main // import "upspin.io/cmd/upspinfs"
 
 import (
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -30,7 +31,12 @@ func (f *upspinFS) NodeSaved(e fs.NodeEntry) {
 	}
 	f.jmu.Lock()
 	defer f.jmu.Unlock()
+	if old := f.byID[e.ID]; old != nil && old != n {
+		// Only after a missed Forget; the ID now names n.
+		old.kernelID = 0
+	}
 	n.kernelID = e.ID
+	f.byID[e.ID] = n
 	if f.journal == nil {
 		return
 	}
@@ -49,6 +55,12 @@ func (f *upspinFS) NodeSaved(e fs.NodeEntry) {
 func (f *upspinFS) NodeRemoved(id fuse.NodeID) {
 	f.jmu.Lock()
 	defer f.jmu.Unlock()
+	// The server may give the ID to another node at once. Later path and
+	// mapping changes of the forgotten node must not reach that one.
+	if n := f.byID[id]; n != nil {
+		n.kernelID = 0
+		delete(f.byID, id)
+	}
 	if f.journal != nil {
 		f.journal.forgetNode(id)
 		f.checkJournal()
@@ -73,7 +85,8 @@ func (f *upspinFS) HandleSaved(e fs.HandleEntry) {
 func (f *upspinFS) HandleRemoved(id fuse.HandleID) {
 	f.jmu.Lock()
 	defer f.jmu.Unlock()
-	if f.journal != nil {
+	// Directory handles are not journaled, so neither is their release.
+	if _, ok := f.journal.liveHandle(id); ok {
 		f.journal.releaseHandle(id)
 		f.checkJournal()
 	}
@@ -115,36 +128,47 @@ func (f *upspinFS) checkJournal() {
 }
 
 // restore rebuilds the nodes in st and returns the tables for the FUSE
-// server. It must run before the server starts. Every restored node is stale:
-// its first refresh asks the directory server for its attributes.
+// server. It must run before the server starts. Every restored node with a
+// path is stale: its first refresh asks the directory server for its
+// attributes. A node that had lost its path answers ENOENT.
 //
 // Open file handles are not restored yet, so the kernel's handles from the
-// earlier process stop working.
+// earlier process stop working. They are released in the journal.
 func (f *upspinFS) restore(st journalState) fs.State {
 	out := fs.State{NodeGeneration: st.maxGen}
 	f.Lock()
 	defer f.Unlock()
 	f.jmu.Lock()
 	defer f.jmu.Unlock()
-	for id, jn := range st.nodes {
+	ids := make([]fuse.NodeID, 0, len(st.nodes))
+	for id := range st.nodes {
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(a, b int) bool { return ids[a] < ids[b] })
+	for _, id := range ids {
+		jn := st.nodes[id]
 		if jn.inode > uint64(f.lastID) {
 			f.lastID = fuse.NodeID(jn.inode)
 		}
 		if id == 1 {
 			f.root.kernelID = 1
+			f.byID[1] = f.root
 			out.Nodes = append(out.Nodes, fs.NodeEntry{ID: id, Inode: jn.inode, Generation: jn.gen, Refs: jn.refs})
 			continue
 		}
+		if _, ok := f.nodeMap[upspin.PathName(jn.path)]; ok && jn.mapped {
+			// Only one node can be mapped to a path; the lowest ID keeps it.
+			// The journal never records two, so this means damage.
+			log.Error.Printf("upspinfs: journal maps %q to two nodes", jn.path)
+			jn.mapped = false
+			if f.journal != nil {
+				f.journal.setMapped(id, false)
+			}
+		}
 		n := f.restoredNode(id, jn)
+		f.byID[id] = n
 		out.Nodes = append(out.Nodes, fs.NodeEntry{ID: id, Inode: jn.inode, Generation: jn.gen, Refs: jn.refs, Node: n})
 		if !jn.mapped {
-			continue
-		}
-		if _, ok := f.nodeMap[n.uname]; ok {
-			// Only one node can be mapped to a path. Keep the first.
-			log.Error.Printf("upspinfs: journal maps %q to two nodes", n.uname)
-			n.jmapped = false
-			n.noWB = true
 			continue
 		}
 		f.nodeMap[n.uname] = n
@@ -155,6 +179,14 @@ func (f *upspinFS) restore(st journalState) fs.State {
 	}
 	if len(st.handles) > 0 {
 		log.Info.Printf("upspinfs: %d open files of the earlier process are lost", len(st.handles))
+		if f.journal != nil {
+			for id := range st.handles {
+				f.journal.releaseHandle(id)
+			}
+		}
+	}
+	if f.journal != nil {
+		f.checkJournal()
 	}
 	return out
 }
@@ -174,7 +206,7 @@ func (f *upspinFS) restoredNode(id fuse.NodeID, jn journalNode) *node {
 	}
 	if strings.Contains(jn.path, "/") {
 		n.t = otherNode
-		n.stale = true
+		n.stale = jn.mapped
 		if p, err := path.Parse(n.uname); err == nil {
 			n.user = p.User()
 		}
@@ -184,8 +216,10 @@ func (f *upspinFS) restoredNode(id fuse.NodeID, jn journalNode) *node {
 	}
 	if !jn.mapped {
 		// The node lost its path before the restart, by a rename over it
-		// or a delete. It must not write back to that path.
+		// or a delete. Another file may have that path now, so the node
+		// must neither look it up nor write back to it.
 		n.noWB = true
+		n.deleted = true
 	}
 	now := time.Now()
 	n.attr = fuse.Attr{
@@ -210,6 +244,11 @@ func (f *upspinFS) restoredNode(id fuse.NodeID, jn journalNode) *node {
 func (n *node) refreshStale() error {
 	const op errors.Op = "refresh"
 	_, de, err := n.lookup(n.uname)
+	if err == nil && fileType(de) != os.FileMode(n.jmode)&os.ModeType {
+		// The path now names a different kind of file. A node keeps its
+		// type for its whole life, so this node is gone.
+		err = errors.E(errors.NotExist, n.uname)
+	}
 	if err != nil {
 		if !errors.Is(errors.NotExist, err) {
 			// Try again on the next refresh.
@@ -226,12 +265,8 @@ func (n *node) refreshStale() error {
 		n.f.Unlock()
 		return e2e(errors.E(op, errors.NotExist, n.uname))
 	}
-	mode := os.FileMode(unixPermissions)
-	if de.IsDir() {
-		mode |= os.ModeDir
-	}
+	mode := os.FileMode(unixPermissions) | fileType(de)
 	if de.IsLink() {
-		mode |= os.ModeSymlink
 		n.link = upspin.PathName(de.Link)
 	}
 	size, err := lstatSize(de, n)
@@ -247,4 +282,15 @@ func (n *node) refreshStale() error {
 	n.stale = false
 	n.refreshTime = time.Now().Add(refreshInterval)
 	return nil
+}
+
+// fileType returns the type bits of the mode upspinfs gives an entry.
+func fileType(de *upspin.DirEntry) os.FileMode {
+	switch {
+	case de.IsDir():
+		return os.ModeDir
+	case de.IsLink():
+		return os.ModeSymlink
+	}
+	return 0
 }

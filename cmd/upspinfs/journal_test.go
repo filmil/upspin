@@ -5,6 +5,8 @@
 package main
 
 import (
+	"encoding/binary"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -152,12 +154,101 @@ func TestJournalCompacts(t *testing.T) {
 
 	// The old records no longer take space, where the file system can
 	// punch holes.
+	if !canPunchHoles(t) {
+		t.Skip("this file system cannot punch holes")
+	}
 	var stat syscall.Stat_t
 	if err := syscall.Fstat(int(f.Fd()), &stat); err != nil {
 		t.Fatal(err)
 	}
-	if err := punchHole(f, journalHeaderSize, 0); err == nil && stat.Blocks*512 >= stat.Size {
-		t.Logf("file of %d bytes uses %d blocks; holes may not be supported here", stat.Size, stat.Blocks)
+	if stat.Blocks*512 >= stat.Size/2 {
+		t.Errorf("journal of %d bytes uses %d bytes on disk; the old records were not freed", stat.Size, stat.Blocks*512)
+	}
+}
+
+// canPunchHoles reports whether punchHole frees space in the test directory.
+func canPunchHoles(t *testing.T) bool {
+	f := tempJournal(t)
+	if _, err := f.WriteAt(make([]byte, 1<<20), 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Sync(); err != nil {
+		t.Fatal(err)
+	}
+	if err := punchHole(f, 0, 1<<20); err != nil {
+		return false
+	}
+	var stat syscall.Stat_t
+	if err := syscall.Fstat(int(f.Fd()), &stat); err != nil {
+		t.Fatal(err)
+	}
+	return stat.Blocks*512 < 1<<19
+}
+
+func TestJournalRejectsBadStart(t *testing.T) {
+	for _, start := range []uint64{0, journalHeaderSize - 1, 1 << 40} {
+		f := tempJournal(t)
+		hdr := make([]byte, journalHeaderSize)
+		copy(hdr, journalMagic)
+		binary.LittleEndian.PutUint64(hdr[journalStartOff:], start)
+		if _, err := f.WriteAt(hdr, 0); err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := openJournal(f); err == nil {
+			t.Errorf("openJournal accepted start offset %d", start)
+		}
+	}
+}
+
+func TestJournalRejectsShortHeader(t *testing.T) {
+	f := tempJournal(t)
+	if _, err := f.WriteAt([]byte(journalMagic), 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := openJournal(f); err == nil {
+		t.Error("openJournal accepted a header without a start offset")
+	}
+}
+
+func TestApplyRecordRejectsDamage(t *testing.T) {
+	good := encodeNode(2, journalNode{inode: 5, refs: 1, path: "u@x.com/a"})
+	tests := map[string][]byte{
+		"empty":          {},
+		"unknown type":   {99, 1},
+		"trailing bytes": append(append([]byte(nil), good...), 0),
+		"short number":   {recForget, 0x80},
+		"short string":   good[:len(good)-1],
+	}
+	for name, payload := range tests {
+		st := newJournalState()
+		if err := applyRecord(&st, payload); err == nil {
+			t.Errorf("%s: applyRecord accepted the record", name)
+		}
+		if !reflect.DeepEqual(st, newJournalState()) {
+			t.Errorf("%s: a rejected record changed the state to %+v", name, st)
+		}
+	}
+}
+
+func TestJournalRefusesHugeRecord(t *testing.T) {
+	j, _ := mustOpenJournal(t, tempJournal(t))
+	j.setPath(1, string(make([]byte, maxRecordSize)))
+	if j.err == nil {
+		t.Error("the journal wrote a record that replay would reject")
+	}
+}
+
+// TestJournalStopsAfterWriteError checks that no record is written after a
+// failed one, so that replay never skips a gap.
+func TestJournalStopsAfterWriteError(t *testing.T) {
+	f := tempJournal(t)
+	j, _ := mustOpenJournal(t, f)
+	j.putNode(2, journalNode{inode: 5, refs: 1})
+	end := j.end
+	j.fail(errors.New("injected"))
+	j.putNode(3, journalNode{inode: 6, refs: 1})
+	if j.end != end {
+		t.Error("the journal wrote after an error")
 	}
 }
 

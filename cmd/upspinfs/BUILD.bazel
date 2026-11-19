@@ -459,7 +459,6 @@ go_test(
             "//store/inprocess",
             "//test/testutil",
             "//third_party/fuse",
-            "//third_party/fuse/fs",
             "//upspin",
         ],
         "@rules_go//go/platform:android": [
@@ -489,7 +488,6 @@ go_test(
             "//store/inprocess",
             "//test/testutil",
             "//third_party/fuse",
-            "//third_party/fuse/fs",
             "//upspin",
         ],
         "@rules_go//go/platform:dragonfly": [
@@ -504,7 +502,6 @@ go_test(
             "//store/inprocess",
             "//test/testutil",
             "//third_party/fuse",
-            "//third_party/fuse/fs",
             "//upspin",
         ],
         "@rules_go//go/platform:freebsd": [
@@ -519,7 +516,6 @@ go_test(
             "//store/inprocess",
             "//test/testutil",
             "//third_party/fuse",
-            "//third_party/fuse/fs",
             "//upspin",
         ],
         "@rules_go//go/platform:illumos": [
@@ -534,7 +530,6 @@ go_test(
             "//store/inprocess",
             "//test/testutil",
             "//third_party/fuse",
-            "//third_party/fuse/fs",
             "//upspin",
         ],
         "@rules_go//go/platform:ios": [
@@ -549,7 +544,6 @@ go_test(
             "//store/inprocess",
             "//test/testutil",
             "//third_party/fuse",
-            "//third_party/fuse/fs",
             "//upspin",
         ],
         "@rules_go//go/platform:js": [
@@ -564,7 +558,6 @@ go_test(
             "//store/inprocess",
             "//test/testutil",
             "//third_party/fuse",
-            "//third_party/fuse/fs",
             "//upspin",
         ],
         "@rules_go//go/platform:linux": [
@@ -594,7 +587,6 @@ go_test(
             "//store/inprocess",
             "//test/testutil",
             "//third_party/fuse",
-            "//third_party/fuse/fs",
             "//upspin",
         ],
         "@rules_go//go/platform:openbsd": [
@@ -609,7 +601,6 @@ go_test(
             "//store/inprocess",
             "//test/testutil",
             "//third_party/fuse",
-            "//third_party/fuse/fs",
             "//upspin",
         ],
         "@rules_go//go/platform:osx": [
@@ -624,7 +615,6 @@ go_test(
             "//store/inprocess",
             "//test/testutil",
             "//third_party/fuse",
-            "//third_party/fuse/fs",
             "//upspin",
         ],
         "@rules_go//go/platform:plan9": [
@@ -639,7 +629,6 @@ go_test(
             "//store/inprocess",
             "//test/testutil",
             "//third_party/fuse",
-            "//third_party/fuse/fs",
             "//upspin",
         ],
         "@rules_go//go/platform:qnx": [
@@ -654,7 +643,6 @@ go_test(
             "//store/inprocess",
             "//test/testutil",
             "//third_party/fuse",
-            "//third_party/fuse/fs",
             "//upspin",
         ],
         "@rules_go//go/platform:solaris": [
@@ -669,7 +657,6 @@ go_test(
             "//store/inprocess",
             "//test/testutil",
             "//third_party/fuse",
-            "//third_party/fuse/fs",
             "//upspin",
         ],
         "//conditions:default": [],
