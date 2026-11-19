@@ -21,11 +21,11 @@ func TestArgsWithout(t *testing.T) {
 
 func TestChildFlags(t *testing.T) {
 	got := childFlags(fuse.Protocol{Major: 7, Minor: 12}, true)
-	want := []string{"-fuse_fd=3", "-fuse_proto=7.12", "-journal_fd=4"}
+	want := []string{"-supervise=false", "-fuse_fd=3", "-fuse_proto=7.12", "-journal_fd=4"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("childFlags = %q, want %q", got, want)
 	}
-	if got := childFlags(fuse.Protocol{Major: 7, Minor: 12}, false); len(got) != 2 {
+	if got := childFlags(fuse.Protocol{Major: 7, Minor: 12}, false); len(got) != 3 {
 		t.Errorf("childFlags without a journal = %q", got)
 	}
 }

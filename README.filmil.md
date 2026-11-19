@@ -120,15 +120,12 @@ keyserver and in directory entries, keeps its original form.
 
 ## upspinfs keeps its mount when its process dies
 
-Run upspinfs with `-supervise` to keep the mount alive when the server
-process crashes or is killed.
-Without it, every access to the mount fails with "Transport endpoint is
+On Linux, upspinfs keeps its mount alive when the server process crashes
+or is killed.
+Without this, every access to the mount fails with "Transport endpoint is
 not connected" until someone unmounts and starts upspinfs again.
-This works on Linux only.
-
-```
-upspinfs -supervise -hang_timeout=1m /path/to/mount
-```
+`-supervise` is on by default on Linux; `-supervise=false` turns it off.
+Other systems do not have it.
 
 With `-supervise`, upspinfs runs as two processes.
 
@@ -154,8 +151,8 @@ The new server answers the 65536 request IDs below its first request with
 `EIO`; the kernel ignores the ones it is not waiting for.
 A lost request older than that still waits forever.
 
-`-hang_timeout`, off by default, also restarts a server that lives but stops
-answering.
+`-hang_timeout`, 1 minute by default, also restarts a server that lives but
+stops answering; `-hang_timeout=0` turns it off.
 The supervisor looks up a name that the server answers from memory, and
 restarts the server when that lookup gets no answer in time while requests
 are waiting.
