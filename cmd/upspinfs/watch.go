@@ -139,6 +139,10 @@ func (w *watchedRoots) watchSupported(name upspin.PathName) bool {
 func (w *watchedRoots) refresh(n *node) error {
 	const op errors.Op = "refresh"
 
+	if n.stale {
+		return n.refreshStale()
+	}
+
 	// Watch is handling refreshes.
 	if n.doNotRefresh {
 		return nil

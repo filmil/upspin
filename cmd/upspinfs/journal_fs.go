@@ -1,0 +1,250 @@
+// SPDX-License-Identifier: Apache-2.0
+
+//go:build !windows
+
+package main // import "upspin.io/cmd/upspinfs"
+
+import (
+	"os"
+	"strings"
+	"time"
+
+	"upspin.io/errors"
+	"upspin.io/log"
+	"upspin.io/path"
+	"upspin.io/third_party/fuse"
+	"upspin.io/third_party/fuse/fs"
+	"upspin.io/upspin"
+)
+
+// This file connects the journal to upspinfs. upspinFS is the TableObserver
+// of its FUSE server, and it records the path changes the server cannot see.
+
+var _ fs.TableObserver = (*upspinFS)(nil)
+
+// NodeSaved implements fs.TableObserver.
+func (f *upspinFS) NodeSaved(e fs.NodeEntry) {
+	n, ok := e.Node.(*node)
+	if !ok {
+		return
+	}
+	f.jmu.Lock()
+	defer f.jmu.Unlock()
+	n.kernelID = e.ID
+	if f.journal == nil {
+		return
+	}
+	f.journal.putNode(e.ID, journalNode{
+		inode:  e.Inode,
+		gen:    e.Generation,
+		refs:   e.Refs,
+		mode:   n.jmode,
+		path:   n.jpath,
+		mapped: n.jmapped,
+	})
+	f.checkJournal()
+}
+
+// NodeRemoved implements fs.TableObserver.
+func (f *upspinFS) NodeRemoved(id fuse.NodeID) {
+	f.jmu.Lock()
+	defer f.jmu.Unlock()
+	if f.journal != nil {
+		f.journal.forgetNode(id)
+		f.checkJournal()
+	}
+}
+
+// HandleSaved implements fs.TableObserver.
+func (f *upspinFS) HandleSaved(e fs.HandleEntry) {
+	h, ok := e.Handle.(*handle)
+	if !ok {
+		return
+	}
+	f.jmu.Lock()
+	defer f.jmu.Unlock()
+	if f.journal != nil {
+		f.journal.putHandle(e.ID, journalHandle{node: h.n.kernelID, flags: uint32(h.flags)})
+		f.checkJournal()
+	}
+}
+
+// HandleRemoved implements fs.TableObserver.
+func (f *upspinFS) HandleRemoved(id fuse.HandleID) {
+	f.jmu.Lock()
+	defer f.jmu.Unlock()
+	if f.journal != nil {
+		f.journal.releaseHandle(id)
+		f.checkJournal()
+	}
+}
+
+// setMapped records whether f.nodeMap maps n's path to n. Called with f
+// locked.
+func (f *upspinFS) setMapped(n *node, mapped bool) {
+	f.jmu.Lock()
+	defer f.jmu.Unlock()
+	if n.jmapped == mapped {
+		return
+	}
+	n.jmapped = mapped
+	if f.journal != nil && n.kernelID != 0 {
+		f.journal.setMapped(n.kernelID, mapped)
+		f.checkJournal()
+	}
+}
+
+// setPath records a new path name for n. Called with f locked.
+func (f *upspinFS) setPath(n *node, p upspin.PathName) {
+	f.jmu.Lock()
+	defer f.jmu.Unlock()
+	n.jpath = string(p)
+	if f.journal != nil && n.kernelID != 0 {
+		f.journal.setPath(n.kernelID, n.jpath)
+		f.checkJournal()
+	}
+}
+
+// checkJournal stops journaling after the first write error. The mount keeps
+// working; only a later restart loses the tables. Called with f.jmu locked.
+func (f *upspinFS) checkJournal() {
+	if err := f.journal.err; err != nil {
+		log.Error.Printf("upspinfs: journal write failed, a restart will lose open files: %v", err)
+		f.journal = nil
+	}
+}
+
+// restore rebuilds the nodes in st and returns the tables for the FUSE
+// server. It must run before the server starts. Every restored node is stale:
+// its first refresh asks the directory server for its attributes.
+//
+// Open file handles are not restored yet, so the kernel's handles from the
+// earlier process stop working.
+func (f *upspinFS) restore(st journalState) fs.State {
+	out := fs.State{NodeGeneration: st.maxGen}
+	f.Lock()
+	defer f.Unlock()
+	f.jmu.Lock()
+	defer f.jmu.Unlock()
+	for id, jn := range st.nodes {
+		if jn.inode > uint64(f.lastID) {
+			f.lastID = fuse.NodeID(jn.inode)
+		}
+		if id == 1 {
+			f.root.kernelID = 1
+			out.Nodes = append(out.Nodes, fs.NodeEntry{ID: id, Inode: jn.inode, Generation: jn.gen, Refs: jn.refs})
+			continue
+		}
+		n := f.restoredNode(id, jn)
+		out.Nodes = append(out.Nodes, fs.NodeEntry{ID: id, Inode: jn.inode, Generation: jn.gen, Refs: jn.refs, Node: n})
+		if !jn.mapped {
+			continue
+		}
+		if _, ok := f.nodeMap[n.uname]; ok {
+			// Only one node can be mapped to a path. Keep the first.
+			log.Error.Printf("upspinfs: journal maps %q to two nodes", n.uname)
+			n.jmapped = false
+			n.noWB = true
+			continue
+		}
+		f.nodeMap[n.uname] = n
+		f.watched.add(n.uname)
+		if n.t == userNode {
+			f.userDirs[string(n.user)] = true
+		}
+	}
+	if len(st.handles) > 0 {
+		log.Info.Printf("upspinfs: %d open files of the earlier process are lost", len(st.handles))
+	}
+	return out
+}
+
+// restoredNode makes a node from its journal entry. Called with f and f.jmu
+// locked.
+func (f *upspinFS) restoredNode(id fuse.NodeID, jn journalNode) *node {
+	mode := os.FileMode(jn.mode)
+	n := &node{
+		f:        f,
+		uname:    upspin.PathName(jn.path),
+		handles:  make(map[*handle]bool),
+		kernelID: id,
+		jpath:    jn.path,
+		jmode:    jn.mode,
+		jmapped:  jn.mapped,
+	}
+	if strings.Contains(jn.path, "/") {
+		n.t = otherNode
+		n.stale = true
+		if p, err := path.Parse(n.uname); err == nil {
+			n.user = p.User()
+		}
+	} else {
+		n.t = userNode
+		n.user = upspin.UserName(jn.path)
+	}
+	if !jn.mapped {
+		// The node lost its path before the restart, by a rename over it
+		// or a delete. It must not write back to that path.
+		n.noWB = true
+	}
+	now := time.Now()
+	n.attr = fuse.Attr{
+		Valid:     defaultValid,
+		Inode:     jn.inode,
+		Mode:      mode,
+		Atime:     now,
+		Ctime:     now,
+		Mtime:     now,
+		Crtime:    now,
+		Uid:       uint32(f.uid),
+		Gid:       uint32(f.gid),
+		BlockSize: 4096,
+		Nlink:     1,
+	}
+	n.id = fuse.NodeID(jn.inode)
+	return n
+}
+
+// refreshStale asks the directory server for the attributes of a restored
+// node. Called with n locked.
+func (n *node) refreshStale() error {
+	const op errors.Op = "refresh"
+	_, de, err := n.lookup(n.uname)
+	if err != nil {
+		if !errors.Is(errors.NotExist, err) {
+			// Try again on the next refresh.
+			return e2e(errors.E(op, err))
+		}
+		n.stale = false
+		n.deleted = true
+		n.f.Lock()
+		if n.f.nodeMap[n.uname] == n {
+			delete(n.f.nodeMap, n.uname)
+			n.f.watched.remove(n.uname)
+			n.f.setMapped(n, false)
+		}
+		n.f.Unlock()
+		return e2e(errors.E(op, errors.NotExist, n.uname))
+	}
+	mode := os.FileMode(unixPermissions)
+	if de.IsDir() {
+		mode |= os.ModeDir
+	}
+	if de.IsLink() {
+		mode |= os.ModeSymlink
+		n.link = upspin.PathName(de.Link)
+	}
+	size, err := lstatSize(de, n)
+	if err != nil {
+		return e2e(errors.E(op, err))
+	}
+	n.attr.Mode = mode
+	n.attr.Size = size
+	n.attr.Blocks = (size + 511) / 512
+	n.attr.Mtime = de.Time.Go()
+	n.attr.Ctime = n.attr.Mtime
+	n.seq = de.Sequence
+	n.stale = false
+	n.refreshTime = time.Now().Add(refreshInterval)
+	return nil
+}
