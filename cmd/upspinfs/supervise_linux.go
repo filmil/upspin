@@ -171,6 +171,9 @@ func supervise(cfg upspin.Config, mountpoint string, allowOther bool, hangTimeou
 // descriptors.
 func childFlags(proto fuse.Protocol, journal bool) []string {
 	flags := []string{
+		// The child runs the same program, where -supervise is the
+		// default.
+		"-supervise=false",
 		fmt.Sprintf("-fuse_fd=%d", childFuseFD),
 		fmt.Sprintf("-fuse_proto=%d.%d", proto.Major, proto.Minor),
 	}
