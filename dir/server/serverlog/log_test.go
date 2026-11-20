@@ -615,9 +615,10 @@ func TestIndex(t *testing.T) {
 	}
 }
 
-// restoreFixture saves a root for a user in one log directory, so that a
-// test can open the same user in another, empty, log directory.
-func restoreFixture(t *testing.T) (storage.Storage, upspin.Factotum, upspin.UserName, upspin.DirEntry, *User) {
+// restoreFixture saves a root for a user in a new log directory, so that a
+// test can open the same user in another, empty, log directory. It returns
+// the store, which then holds the root's backup, and the log directory.
+func restoreFixture(t *testing.T) (notifyingStorage, upspin.Factotum, upspin.UserName, upspin.DirEntry, *User, string) {
 	t.Helper()
 	store := notifyingStorage{storagetest.Memory(), make(chan bool, 1)}
 	fac, err := factotum.NewFromDir(testutil.Repo("key", "testdata", "test"))
@@ -625,85 +626,201 @@ func restoreFixture(t *testing.T) (storage.Storage, upspin.Factotum, upspin.User
 		t.Fatal(err)
 	}
 	const name = upspin.UserName("restore@bar.com")
-	user, err := Open(name, t.TempDir(), fac, store)
+	dir := t.TempDir()
+	user, err := Open(name, dir, fac, store)
 	if err != nil {
 		t.Fatal(err)
 	}
-	root := upspin.DirEntry{
-		Name:       "restore@bar.com/",
-		SignedName: "restore@bar.com/",
-		Writer:     "restore@bar.com",
-		Packing:    upspin.PlainPack,
-		Attr:       upspin.AttrDirectory,
-		Sequence:   42,
-		Time:       1234567890,
-	}
+	root := restoreTestRoot(name, 42)
 	if err := user.SaveRoot(&root); err != nil {
 		t.Fatal(err)
 	}
 	<-store.onPut
-	return store, fac, name, root, user
+	return store, fac, name, root, user, dir
+}
+
+func restoreTestRoot(name upspin.UserName, seq int64) upspin.DirEntry {
+	return upspin.DirEntry{
+		Name:       upspin.PathName(name) + "/",
+		SignedName: upspin.PathName(name) + "/",
+		Writer:     name,
+		Packing:    upspin.PlainPack,
+		Attr:       upspin.AttrDirectory,
+		Sequence:   seq,
+		Time:       1234567890,
+	}
+}
+
+// putBackup replaces the root backup in store with b.
+func putBackup(t *testing.T, store notifyingStorage, ref string, b []byte) {
+	t.Helper()
+	if err := store.Put(ref, b); err != nil {
+		t.Fatal(err)
+	}
+	<-store.onPut
+}
+
+func marshalEntry(t *testing.T, de upspin.DirEntry) []byte {
+	t.Helper()
+	b, err := de.Marshal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
+func wantRoot(t *testing.T, user *User, want upspin.DirEntry) {
+	t.Helper()
+	got, err := user.Root()
+	if err != nil {
+		t.Fatalf("Root: %v", err)
+	}
+	if !reflect.DeepEqual(got, &want) {
+		t.Errorf("Root = %v, want %v", got, want)
+	}
+}
+
+func wantNoRoot(t *testing.T, user *User) {
+	t.Helper()
+	if _, err := user.Root(); !errors.Is(errors.NotExist, err) {
+		t.Errorf("Root: %v, want NotExist", err)
+	}
 }
 
 // TestRestoreRootFromBackup opens a user whose log directory was lost: the
-// root comes back from the storage backend.
+// root comes back from the storage backend, is written to the new log
+// directory, and takes new roots afterwards.
 func TestRestoreRootFromBackup(t *testing.T) {
-	store, fac, name, root, old := restoreFixture(t)
+	store, fac, name, root, old, _ := restoreFixture(t)
 	old.Close()
 
-	user, err := Open(name, t.TempDir(), fac, store)
+	dir := t.TempDir()
+	user, err := Open(name, dir, fac, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantRoot(t, user, root)
+	next := restoreTestRoot(name, 43)
+	if err := user.SaveRoot(&next); err != nil {
+		t.Fatalf("SaveRoot after a restore: %v", err)
+	}
+	<-store.onPut
+	user.Close()
+
+	// Without a storage backend, the root must come from the local file.
+	user, err = Open(name, dir, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer user.Close()
-	got, err := user.Root()
-	if err != nil {
-		t.Fatalf("Root after a lost log directory: %v", err)
-	}
-	if !reflect.DeepEqual(got, &root) {
-		t.Errorf("restored root = %v, want %v", got, root)
-	}
+	wantRoot(t, user, next)
 }
 
-// TestDeletedRootStaysDeleted deletes a root and reopens the same log
-// directory: the backup, which deletion keeps, must not bring it back.
-func TestDeletedRootStaysDeleted(t *testing.T) {
-	store, fac, name, _, user := restoreFixture(t)
-	dir := filepath.Dir(user.rootFile())
-	if err := user.DeleteRoot(); err != nil {
-		t.Fatal(err)
-	}
-	user.Close()
+// TestLocalRootWinsOverBackup reopens a log directory whose root is newer
+// than the backup, as after a crash before saveLoop ran: the local root stays.
+func TestLocalRootWinsOverBackup(t *testing.T) {
+	store, fac, name, root, old, dir := restoreFixture(t)
+	ref := old.root.ref
+	old.Close()
+	putBackup(t, store, ref, marshalEntry(t, restoreTestRoot(name, 7)))
 
 	user, err := Open(name, dir, fac, store)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer user.Close()
-	if _, err := user.Root(); !errors.Is(errors.NotExist, err) {
-		t.Errorf("Root after DeleteRoot and reopen: %v, want NotExist", err)
-	}
+	wantRoot(t, user, root)
 }
 
-// TestDamagedBackupIsIgnored stores a backup that is not a DirEntry: the
-// user opens with no root, as before restores existed.
-func TestDamagedBackupIsIgnored(t *testing.T) {
-	store, fac, name, _, old := restoreFixture(t)
-	ref := old.root.ref
-	old.Close()
-	if err := store.Put(ref, []byte("not a dir entry")); err != nil {
+// TestDeletedRootStaysDeleted deletes a root and reopens the same log
+// directory: the backup, which deletion keeps, must not bring it back.
+func TestDeletedRootStaysDeleted(t *testing.T) {
+	store, fac, name, _, user, dir := restoreFixture(t)
+	ref := user.root.ref
+	if err := user.DeleteRoot(); err != nil {
 		t.Fatal(err)
 	}
-	<-store.(notifyingStorage).onPut
+	user.Close()
+	if b, err := store.Download(ref); err != nil || len(b) == 0 {
+		t.Fatalf("backup after DeleteRoot: %d bytes, %v; want the old root", len(b), err)
+	}
 
-	user, err := Open(name, t.TempDir(), fac, store)
+	user, err := Open(name, dir, fac, store)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer user.Close()
-	if _, err := user.Root(); !errors.Is(errors.NotExist, err) {
-		t.Errorf("Root with a damaged backup: %v, want NotExist", err)
+	wantNoRoot(t, user)
+}
+
+// TestBadBackupIsIgnored stores backups that are not the user's root: the
+// user opens with no root, as before restores existed, and the backup stays.
+func TestBadBackupIsIgnored(t *testing.T) {
+	file := restoreTestRoot("restore@bar.com", 42)
+	file.Name = "restore@bar.com/file"
+	file.SignedName = file.Name
+	file.Attr = upspin.AttrNone
+	for _, tc := range []struct {
+		name   string
+		backup func(t *testing.T, root upspin.DirEntry) []byte
+	}{
+		{"not an entry", func(*testing.T, upspin.DirEntry) []byte { return []byte("not a dir entry") }},
+		{"trailing bytes", func(t *testing.T, root upspin.DirEntry) []byte {
+			return append(marshalEntry(t, root), 1, 2, 3)
+		}},
+		{"not a directory", func(t *testing.T, _ upspin.DirEntry) []byte { return marshalEntry(t, file) }},
+		{"another user", func(t *testing.T, _ upspin.DirEntry) []byte {
+			return marshalEntry(t, restoreTestRoot("other@bar.com", 42))
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store, fac, name, root, old, _ := restoreFixture(t)
+			ref := old.root.ref
+			old.Close()
+			bad := tc.backup(t, root)
+			putBackup(t, store, ref, bad)
+
+			user, err := Open(name, t.TempDir(), fac, store)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer user.Close()
+			wantNoRoot(t, user)
+			if b, err := store.Download(ref); err != nil || !reflect.DeepEqual(b, bad) {
+				t.Errorf("backup after a skipped restore: %q, %v; want it unchanged", b, err)
+			}
+		})
 	}
+}
+
+// TestRestoreRetriesWithoutRootFile skips a bad backup, then repairs it:
+// removing the empty root file makes the next open restore it.
+func TestRestoreRetriesWithoutRootFile(t *testing.T) {
+	store, fac, name, root, old, _ := restoreFixture(t)
+	ref := old.root.ref
+	old.Close()
+	good := marshalEntry(t, root)
+	putBackup(t, store, ref, []byte("not a dir entry"))
+
+	dir := t.TempDir()
+	user, err := Open(name, dir, fac, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantNoRoot(t, user)
+	rootFile := user.rootFile()
+	user.Close()
+
+	putBackup(t, store, ref, good)
+	if err := os.Remove(rootFile); err != nil {
+		t.Fatal(err)
+	}
+	user, err = Open(name, dir, fac, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer user.Close()
+	wantRoot(t, user, root)
 }
 
 type notifyingStorage struct {
