@@ -1,3 +1,6 @@
 build --registry=https://raw.githubusercontent.com/filmil/bazel-registry/main --registry=https://bcr.bazel.build
-# Version stamping, used only by --stamp builds (version/BUILD.bazel).
-build --workspace_status_command=tools/workspace_status.sh
+# Release builds: --config=release stamps the commit and the release tag
+# into -version (version/BUILD.bazel). Other builds do not run the status
+# command and print "devel".
+build:release --stamp
+build:release --workspace_status_command=tools/workspace_status.sh

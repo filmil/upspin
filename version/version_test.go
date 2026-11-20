@@ -40,6 +40,19 @@ func TestVersion(t *testing.T) {
 	}
 }
 
+func TestStamped(t *testing.T) {
+	for in, want := range map[string]string{
+		"":                     "",
+		"4ae80a4":              "4ae80a4",
+		"{STABLE_GIT_COMMIT}":  "",
+		"{STABLE_RELEASE_TAG}": "",
+	} {
+		if got := stamped(in); got != want {
+			t.Errorf("stamped(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
 func TestParseBuildTime(t *testing.T) {
 	got := parseBuildTime("2026-11-20T07:00:00+01:00")
 	if want := time.Date(2026, 11, 20, 6, 0, 0, 0, time.UTC); !got.Equal(want) {
