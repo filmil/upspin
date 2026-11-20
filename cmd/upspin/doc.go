@@ -213,12 +213,12 @@ rather than this command.
 Flags:
   -curve name
     	cryptographic key type name: p256, p384, or p521, optionally followed by +mlkem768 or +mlkem1024 (default "p256")
-  -format format
-    	key file format: json, or lines for releases before v46.1.0 (default "json")
   -dir address
     	Directory server address (default "dir.example.com:443")
   -force
     	if suffixed user already exists, overwrite its keys and config file
+  -format format
+    	key file format: auto (json for new keys; on -rotate, the format of the existing files), json, or lines for releases before v46.1.0 (default "auto")
   -help
     	print more information about the command
   -rotate
@@ -328,7 +328,7 @@ Flags:
 
 Sub-command keygen
 
-Usage: upspin keygen [-curve=256] [-secretseed=seed] [-format=json|lines] <directory>
+Usage: upspin keygen [-curve=256] [-secretseed=seed] [-format=auto|json|lines] <directory>
 
 Keygen creates a new Upspin key pair and stores the pair in local files
 secret.upspinkey and public.upspinkey in the specified directory.
@@ -343,11 +343,12 @@ a curve, optionally followed by +mlkem768 or +mlkem1024 for a
 post-quantum key. Post-quantum key types need the -eepq global flag
 and a 256 bit secret seed.
 
-The -format flag says how the key files are written: "json" (the
-default), objects with named fields, or "lines", the older line format.
-Releases since v46.1.0 read both; use -format=lines for keys that older
-releases must read. A rotation writes the archive secret2.upspinkey in
-the same format, converting what is already there.
+The -format flag says how the key files are written: "json", objects
+with named fields, or "lines", the older line format. Releases since
+v46.1.0 read both; use -format=lines for keys that older releases must
+read. The default, "auto", writes JSON for new keys and keeps the format
+of the existing files on -rotate. A rotation writes the archive
+secret2.upspinkey in the same format, converting what is already there.
 
 See the description for rotate for information about updating keys.
 
@@ -355,7 +356,7 @@ Flags:
   -curve name
     	cryptographic key type name: p256, p384, or p521, optionally followed by +mlkem768 or +mlkem1024 (default "p256")
   -format format
-    	key file format: json, or lines for releases before v46.1.0 (default "json")
+    	key file format: auto (json for new keys; on -rotate, the format of the existing files), json, or lines for releases before v46.1.0 (default "auto")
   -help
     	print more information about the command
   -rotate
@@ -793,12 +794,12 @@ file and keys and only send the signup request to the key server.
 Flags:
   -curve name
     	cryptographic key type name: p256, p384, or p521, optionally followed by +mlkem768 or +mlkem1024 (default "p256")
-  -format format
-    	key file format: json, or lines for releases before v46.1.0 (default "json")
   -dir address
     	Directory server address
   -force
     	create a new user even if keys and config file exist
+  -format format
+    	key file format: auto (json for new keys; on -rotate, the format of the existing files), json, or lines for releases before v46.1.0 (default "auto")
   -help
     	print more information about the command
   -key address

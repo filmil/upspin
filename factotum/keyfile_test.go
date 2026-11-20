@@ -404,6 +404,21 @@ func TestPrivateKeyFileFromLinesSeed(t *testing.T) {
 	if f.D != "8220123" || f.SecretSeed != "latoj-katuf-kijuh-latuh.lanon-kunol-kinoz-lanuj" {
 		t.Errorf("got %+v", f)
 	}
+	// "#" starts a comment wherever it is, as in the reader.
+	f, err = PrivateKeyFileFromLines("p256", "# a header line\n8220123\t#seed-words\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.D != "8220123" || f.SecretSeed != "seed-words" {
+		t.Errorf("got %+v", f)
+	}
+	f, err = PrivateKeyFileFromLines("p256+mlkem768", "8220123\nz3Jk== # pq-seed\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.D != "8220123" || f.KEMSeed != "z3Jk==" || f.SecretSeed != "pq-seed" {
+		t.Errorf("post-quantum: got %+v", f)
+	}
 	if _, err := PrivateKeyFileFromLines("p256+mlkem768", "8220123\n"); err == nil {
 		t.Error("a post-quantum key with one private line: expected an error")
 	}
@@ -438,7 +453,11 @@ func TestArchiveFileFromLines(t *testing.T) {
 	if f, err := ArchiveFileFromLines(nil); err != nil || len(f.Keys) != 0 {
 		t.Errorf("empty archive = %+v, %v", f, err)
 	}
-	for _, bad := range []string{"garbage\n", "# EE\np256\n104\n", "# EE\nnotatype\n1\n2\n3\n", "# EE\n" + pub + "8220\nleftover\n"} {
+	pq := "p256+mlkem768\n104\n269\nMIIE==\n"
+	if f, err := ArchiveFileFromLines([]byte("# EE\n" + pq + "8220\nz3Jk== # s\n")); err != nil || len(f.Keys) != 1 || f.Keys[0].Private.KEMSeed != "z3Jk==" || f.Keys[0].Private.SecretSeed != "s" {
+		t.Errorf("post-quantum archive = %+v, %v", f, err)
+	}
+	for _, bad := range []string{"garbage\n", "# EE\np256\n104\n", "# EE\nnotatype\n1\n2\n3\n", "# EE\n" + pub + "8220\nleftover\n", "# EE\n" + pq + "8220\n"} {
 		if _, err := ArchiveFileFromLines([]byte(bad)); err == nil {
 			t.Errorf("ArchiveFileFromLines(%q): expected an error", bad)
 		}
