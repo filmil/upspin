@@ -135,6 +135,9 @@ jobs:
           repository-cache: true
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # The release tag, so that stamped binaries name it.
+          ref: ${{ needs.tag.outputs.tag_name }}
       - name: Cache
         uses: actions/cache@v4
         with:
@@ -145,12 +148,14 @@ jobs:
       - name: "Build binaries for ${{ matrix.os }}_${{ matrix.arch }}"
         run: |
           TARGETS=$(bazel query 'kind("go_binary", //cmd/...)')
-          bazel build --platforms=@rules_go//go/toolchain:${{ matrix.os }}_${{ matrix.arch }} $(echo $TARGETS)
+          # --stamp puts the commit and the release tag into -version
+          # (version/BUILD.bazel); the checkout is the tag for that.
+          bazel build --stamp --platforms=@rules_go//go/toolchain:${{ matrix.os }}_${{ matrix.arch }} $(echo $TARGETS)
       - name: "Package binaries"
         run: |
           mkdir -p release-binaries
           TARGETS=$(bazel query 'kind("go_binary", //cmd/...)')
-          FILES=$(bazel cquery "set($TARGETS)" --platforms=@rules_go//go/toolchain:${{ matrix.os }}_${{ matrix.arch }} --output=files 2>/dev/null | grep bazel-out)
+          FILES=$(bazel cquery "set($TARGETS)" --stamp --platforms=@rules_go//go/toolchain:${{ matrix.os }}_${{ matrix.arch }} --output=files 2>/dev/null | grep bazel-out)
           cp $FILES release-binaries/
           zip -j -r upspin-binaries-${{ matrix.os }}-${{ matrix.arch }}.zip release-binaries/
       - name: Generate artifact attestation for compiled binaries
