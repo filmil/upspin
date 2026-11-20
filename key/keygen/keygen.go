@@ -241,8 +241,8 @@ func keyMaterial(key string) string {
 	return strings.Join(out, "\n")
 }
 
-// isJSONFile reports whether the contents of a key file are JSON.
-func isJSONFile(data []byte) bool {
+// isJSONData reports whether the contents of a key file are JSON.
+func isJSONData(data []byte) bool {
 	return bytes.HasPrefix(bytes.TrimSpace(data), []byte("{"))
 }
 
@@ -307,7 +307,7 @@ func SaveKeysAs(format Format, where string, rotate bool, newPublic, newPrivate,
 	}
 	if format == Auto {
 		format = Lines
-		if isJSONFile(privateData) {
+		if isJSONData(privateData) {
 			format = JSON
 		}
 	}
@@ -329,7 +329,7 @@ func SaveKeysAs(format Format, where string, rotate bool, newPublic, newPrivate,
 
 	if keyMaterial(string(public)) == keyMaterial(newPublic) && keyMaterial(string(private)) == keyMaterial(newPrivate) {
 		// The same key pair: nothing to archive.
-		if (format == JSON) == isJSONFile(privateData) && secretStr == "" {
+		if (format == JSON) == isJSONData(privateData) && secretStr == "" {
 			return nil
 		}
 		// Rewrite the key files in the requested format, keeping the
