@@ -301,6 +301,11 @@ jobs:
       - name: Build the generated protobuf sources
         run: bazel build --remote_download_outputs=all //upspin/proto:proto_go_proto //rpc/testdata:prototest_go_proto
 
+      # fuzz.sh counts Go's own deadline error as a pass (golang/go#75804);
+      # check first that it still fails real failures.
+      - name: Test fuzz.sh
+        run: .github/scripts/fuzz_test.sh
+
       - name: Fuzz for 60 seconds per target
         run: .github/scripts/fuzz.sh 60s
 
