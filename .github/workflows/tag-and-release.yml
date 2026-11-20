@@ -137,7 +137,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           # The release tag, so that stamped binaries name it.
-          ref: ${{ needs.tag.outputs.tag_name }}
+          ref: refs/tags/${{ needs.tag.outputs.tag_name }}
       - name: Cache
         uses: actions/cache@v4
         with:
@@ -148,16 +148,24 @@ jobs:
       - name: "Build binaries for ${{ matrix.os }}_${{ matrix.arch }}"
         run: |
           TARGETS=$(bazel query 'kind("go_binary", //cmd/...)')
-          # --stamp puts the commit and the release tag into -version
-          # (version/BUILD.bazel); the checkout is the tag for that.
-          bazel build --stamp --platforms=@rules_go//go/toolchain:${{ matrix.os }}_${{ matrix.arch }} $(echo $TARGETS)
+          # --config=release puts the commit and the release tag into
+          # -version (version/BUILD.bazel); the checkout is the tag for that.
+          bazel build --config=release --platforms=@rules_go//go/toolchain:${{ matrix.os }}_${{ matrix.arch }} $(echo $TARGETS)
       - name: "Package binaries"
         run: |
           mkdir -p release-binaries
           TARGETS=$(bazel query 'kind("go_binary", //cmd/...)')
-          FILES=$(bazel cquery "set($TARGETS)" --stamp --platforms=@rules_go//go/toolchain:${{ matrix.os }}_${{ matrix.arch }} --output=files 2>/dev/null | grep bazel-out)
+          FILES=$(bazel cquery "set($TARGETS)" --config=release --platforms=@rules_go//go/toolchain:${{ matrix.os }}_${{ matrix.arch }} --output=files 2>/dev/null | grep bazel-out)
           cp $FILES release-binaries/
           zip -j -r upspin-binaries-${{ matrix.os }}-${{ matrix.arch }}.zip release-binaries/
+      - name: "Check that the binaries name the release"
+        if: matrix.os == 'linux' && matrix.arch == 'amd64'
+        run: |
+          status=0
+          out=$(release-binaries/upspin -version) || status=$?
+          echo "$out"
+          test "$status" -eq 2
+          grep -qx "Release:    ${{ needs.tag.outputs.tag_name }}" <<<"$out"
       - name: Generate artifact attestation for compiled binaries
         id: attest_bin
         uses: actions/attest-build-provenance@v2

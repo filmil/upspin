@@ -10,6 +10,7 @@ package version
 
 import (
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -27,9 +28,20 @@ var (
 )
 
 func init() {
+	GitSHA = stamped(GitSHA)
+	Release = stamped(Release)
 	if BuildTime.IsZero() {
-		BuildTime = parseBuildTime(buildTime)
+		BuildTime = parseBuildTime(stamped(buildTime))
 	}
+}
+
+// stamped returns s, or "" if s is a stamp placeholder such as
+// "{STABLE_GIT_COMMIT}" that a build left unexpanded.
+func stamped(s string) string {
+	if strings.HasPrefix(s, "{") && strings.HasSuffix(s, "}") {
+		return ""
+	}
+	return s
 }
 
 // parseBuildTime parses an RFC 3339 time, and gives the zero time for an
