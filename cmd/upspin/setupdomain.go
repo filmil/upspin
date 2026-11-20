@@ -119,6 +119,8 @@ If any state exists at the given location (-where) then the command aborts.
 	if err != nil {
 		s.Exit(err)
 	}
+	// Server keys stay in the line format: setupserver hands them to a
+	// server that may run a release from before JSON key files (v46.1.0).
 	err = keygen.SaveKeys(dirServerPath, false, dirPublic, dirPrivate, dirProquint)
 	if err != nil {
 		s.Exit(err)
@@ -276,6 +278,7 @@ func (s *State) setuphost(where, domain, curve, proquint string) {
 	if err != nil {
 		s.Exit(err)
 	}
+	// In the line format, as the server keys above.
 	err = keygen.SaveKeys(cfgPath, false, pub, pri, proquint)
 	if err != nil {
 		s.Exit(err)

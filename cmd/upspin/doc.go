@@ -213,6 +213,8 @@ rather than this command.
 Flags:
   -curve name
     	cryptographic key type name: p256, p384, or p521, optionally followed by +mlkem768 or +mlkem1024 (default "p256")
+  -format format
+    	key file format: json, or lines for releases before v46.1.0 (default "json")
   -dir address
     	Directory server address (default "dir.example.com:443")
   -force
@@ -326,7 +328,7 @@ Flags:
 
 Sub-command keygen
 
-Usage: upspin keygen [-curve=256] [-secretseed=seed] <directory>
+Usage: upspin keygen [-curve=256] [-secretseed=seed] [-format=json|lines] <directory>
 
 Keygen creates a new Upspin key pair and stores the pair in local files
 secret.upspinkey and public.upspinkey in the specified directory.
@@ -341,11 +343,19 @@ a curve, optionally followed by +mlkem768 or +mlkem1024 for a
 post-quantum key. Post-quantum key types need the -eepq global flag
 and a 256 bit secret seed.
 
+The -format flag says how the key files are written: "json" (the
+default), objects with named fields, or "lines", the older line format.
+Releases since v46.1.0 read both; use -format=lines for keys that older
+releases must read. A rotation writes the archive secret2.upspinkey in
+the same format, converting what is already there.
+
 See the description for rotate for information about updating keys.
 
 Flags:
   -curve name
     	cryptographic key type name: p256, p384, or p521, optionally followed by +mlkem768 or +mlkem1024 (default "p256")
+  -format format
+    	key file format: json, or lines for releases before v46.1.0 (default "json")
   -help
     	print more information about the command
   -rotate
@@ -783,6 +793,8 @@ file and keys and only send the signup request to the key server.
 Flags:
   -curve name
     	cryptographic key type name: p256, p384, or p521, optionally followed by +mlkem768 or +mlkem1024 (default "p256")
+  -format format
+    	key file format: json, or lines for releases before v46.1.0 (default "json")
   -dir address
     	Directory server address
   -force
