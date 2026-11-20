@@ -18,8 +18,10 @@
 # spurious_deadline.
 #
 # Exit status:
-#   0  every target ran to its time without a failure
-#   1  a target found a failing input; it is written under testdata/fuzz
+#   0  every target ran to its time, or failed only by that deadline race
+#   1  a target failed: a failing input (written under testdata/fuzz), a
+#      panic, a fatal runtime error, a hang before fuzzing began, or a
+#      build error
 set -u
 
 # package target pairs; keep in step with the Fuzz functions in the tree.
@@ -40,19 +42,32 @@ key/keygen FuzzSecretFromProquint
 #   $1  file with the output of go test -fuzz
 #   $2  number of files the run added to the package's testdata/fuzz/<target>
 #
-# It is true only when the output fails the target with exactly the message
-# "context deadline exceeded", names no failing input, shows no panic, and
-# the run added no input to testdata/fuzz. A real crasher is written there
-# even when the same race hides its message, so that case still fails.
+# It is true only when all of these hold:
+#   - the run added no input to testdata/fuzz: a real crasher is written
+#     there even when the race hides its message;
+#   - the output names no failing input and shows no panic or fatal error;
+#   - the engine finished its baseline and executed inputs, so a hang on a
+#     seed input is not excused;
+#   - exactly one target failed, and its only message is
+#     "context deadline exceeded".
 spurious_deadline() {
 	local out=$1 added=$2
 	[[ "$added" == 0 ]] || return 1
-	grep -q -e 'Failing input written to' -e '^panic:' "$out" && return 1
-	# The line after "--- FAIL: FuzzX (...)" holds the failure message.
+	grep -q -e 'Failing input written to' -e 'panic:' -e 'fatal error:' "$out" && return 1
+	grep -q 'now fuzzing with' "$out" || return 1
+	grep -q -E 'execs: [1-9][0-9]*' "$out" || return 1
+	# Every line between "--- FAIL:" and the closing "FAIL" belongs to the
+	# failure; the only one allowed is the deadline message.
 	awk '
-		/^--- FAIL: Fuzz/ { fails++; getline msg; sub(/^[ \t]+/, "", msg)
-			if (msg != "context deadline exceeded") other++ }
-		END { exit !(fails == 1 && other == 0) }
+		/^--- FAIL:/ { fails++; inblock = 1; next }
+		inblock && (/^FAIL/ || /^exit status/) { inblock = 0; next }
+		inblock {
+			line = $0; sub(/^[ \t]+/, "", line)
+			if (line == "") next
+			if (line == "context deadline exceeded") deadline++
+			else other++
+		}
+		END { exit !(fails == 1 && deadline == 1 && other == 0) }
 	' "$out"
 }
 
@@ -67,10 +82,15 @@ count_inputs() {
 
 main() {
 	local fuzztime=${1:-60s}
-	local gocache status=0 out
+	local gocache status=0
+	# Paths below are relative to the repository root, where the go command
+	# that bazel run starts works.
+	cd "$(dirname "${BASH_SOURCE[0]}")/../.." || return 1
 	gocache=$(bazel run @rules_go//go -- env GOCACHE 2>/dev/null | tail -1)
-	out=$(mktemp)
-	trap 'rm -f "$out"' EXIT
+	# fuzz_out is global: the EXIT trap runs after main has returned.
+	fuzz_out=$(mktemp)
+	trap 'rm -f "$fuzz_out"' EXIT
+	local out=$fuzz_out
 	while read -r pkg name; do
 		[[ -z "$pkg" ]] && continue
 		echo "=== $pkg $name ($fuzztime)"
@@ -81,7 +101,7 @@ main() {
 		if ! (set -o pipefail; bazel run @rules_go//go -- test -run='^$' -fuzz="^${name}\$" -fuzztime="$fuzztime" "./$pkg" 2>&1 | tee "$out"); then
 			local added=$(($(count_inputs "$corpus") - before))
 			if spurious_deadline "$out" "$added"; then
-				echo "fuzz.sh: $name ran its whole time; its only error is Go's own deadline (golang/go#75804). Counted as a pass."
+				echo "fuzz.sh: $name fuzzed and failed only with Go's own deadline error (golang/go#75804). Counted as a pass."
 			else
 				status=1
 			fi
