@@ -353,3 +353,94 @@ func TestSecretSeedKept(t *testing.T) {
 		t.Errorf("archive: got %q, want %q", a, want)
 	}
 }
+
+// TestLinesToJSONRoundTrip turns the line format of testdata key pairs
+// into the JSON forms and back, and checks that nothing changes.
+func TestLinesToJSONRoundTrip(t *testing.T) {
+	n := 0
+	for _, name := range []string{"ok", "ok-archived", "pq", "pq-archived"} {
+		dir := filepath.Join("testdata", name)
+		pub, err := os.ReadFile(filepath.Join(dir, "public.upspinkey"))
+		if err != nil {
+			continue
+		}
+		priv, err := os.ReadFile(filepath.Join(dir, "secret.upspinkey"))
+		if err != nil {
+			continue
+		}
+		if strings.HasPrefix(strings.TrimSpace(string(pub)), "{") {
+			continue
+		}
+		n++
+		pf, err := PublicKeyFileFromKey(upspin.PublicKey(pub))
+		if err != nil {
+			t.Errorf("%s: PublicKeyFileFromKey: %v", dir, err)
+			continue
+		}
+		back, err := pf.publicLines()
+		if err != nil || strings.Join(nonEmptyLines(back), "\n") != strings.Join(nonEmptyLines(string(pub)), "\n") {
+			t.Errorf("%s: public key round trip = %q, %v", dir, back, err)
+		}
+		sf, err := PrivateKeyFileFromLines(pf.Type, string(priv))
+		if err != nil {
+			t.Errorf("%s: PrivateKeyFileFromLines: %v", dir, err)
+			continue
+		}
+		lines, err := sf.privateLines(pf.Type)
+		if err != nil || keyLines(lines) != keyLines(string(priv)) {
+			t.Errorf("%s: private key round trip = %q, %v", dir, lines, err)
+		}
+	}
+	if n == 0 {
+		t.Fatal("no line-format key pairs in testdata")
+	}
+}
+
+func TestPrivateKeyFileFromLinesSeed(t *testing.T) {
+	f, err := PrivateKeyFileFromLines("p256", "8220123 # latoj-katuf-kijuh-latuh.lanon-kunol-kinoz-lanuj\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.D != "8220123" || f.SecretSeed != "latoj-katuf-kijuh-latuh.lanon-kunol-kinoz-lanuj" {
+		t.Errorf("got %+v", f)
+	}
+	if _, err := PrivateKeyFileFromLines("p256+mlkem768", "8220123\n"); err == nil {
+		t.Error("a post-quantum key with one private line: expected an error")
+	}
+	if _, err := PrivateKeyFileFromLines("p256", "8220123\nextra\n"); err == nil {
+		t.Error("a classic key with two private lines: expected an error")
+	}
+}
+
+func TestArchiveFileFromLines(t *testing.T) {
+	pub := "p256\n104\n269\n"
+	data := "# EE 2026-11-16 08:00:00Z\n" + pub + "8220 # latoj-katuf\n" + "# EE\n" + pub + "8221\n"
+	f, err := ArchiveFileFromLines([]byte(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(f.Keys) != 2 || f.Keys[0].Date != "2026-11-16 08:00:00Z" || f.Keys[0].Private.SecretSeed != "latoj-katuf" || f.Keys[1].Private.D != "8221" {
+		t.Fatalf("got %+v", f.Keys)
+	}
+	// Back through the JSON reader gives the same archive.
+	b, err := MarshalKeyFile(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines, err := ArchiveFromFile(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "# EE 2026-11-16 08:00:00Z\n" + pub + "8220 # latoj-katuf\n" + "# EE\n" + pub + "8221\n"
+	if string(lines) != want {
+		t.Errorf("round trip = %q, want %q", lines, want)
+	}
+	if f, err := ArchiveFileFromLines(nil); err != nil || len(f.Keys) != 0 {
+		t.Errorf("empty archive = %+v, %v", f, err)
+	}
+	for _, bad := range []string{"garbage\n", "# EE\np256\n104\n", "# EE\nnotatype\n1\n2\n3\n", "# EE\n" + pub + "8220\nleftover\n"} {
+		if _, err := ArchiveFileFromLines([]byte(bad)); err == nil {
+			t.Errorf("ArchiveFileFromLines(%q): expected an error", bad)
+		}
+	}
+}

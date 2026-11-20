@@ -66,6 +66,7 @@ file and keys and only send the signup request to the key server.
 		secrets     = fs.String("secrets", "", "`directory` to store key pair")
 		curve       = fs.String("curve", "p256", curveFlagHelp)
 		secretseed  = fs.String("secretseed", "", "the seed containing a 128 bit secret (256 bit for post-quantum key types) in proquint format or a file that contains it")
+		format      = fs.String("format", "json", keyFormatFlagHelp)
 	)
 
 	s.ParseFlags(fs, args, help, "[-config=<file>] signup -dir=<addr> -store=<addr> [flags] <username>\n       upspin [-config=<file>] signup -server=<addr> [flags] <username>")
@@ -192,7 +193,7 @@ file and keys and only send the signup request to the key server.
 			s.Exit(err)
 		}
 	}
-	s.keygenCommand(*secrets, *curve, *secretseed, false)
+	s.keygenCommand(*secrets, *curve, *secretseed, false, s.keyFormat(*format))
 
 	// Send the signup request to the key server.
 	s.registerUser(*keyServer)

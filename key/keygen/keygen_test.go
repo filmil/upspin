@@ -441,3 +441,182 @@ func TestSaveKeysFromJSONPostQuantum(t *testing.T) {
 		t.Errorf("factotum does not know the archived post-quantum key: %v", err)
 	}
 }
+
+func TestParseFormat(t *testing.T) {
+	for in, want := range map[string]Format{"json": JSON, "lines": Lines} {
+		if got, err := ParseFormat(in); err != nil || got != want {
+			t.Errorf("ParseFormat(%q) = %q, %v; want %q", in, got, err, want)
+		}
+	}
+	for _, bad := range []string{"", "JSON", "yaml"} {
+		if _, err := ParseFormat(bad); err == nil {
+			t.Errorf("ParseFormat(%q): expected an error", bad)
+		}
+	}
+	if err := SaveKeysAs("yaml", t.TempDir(), false, "", "", ""); err == nil {
+		t.Error("SaveKeysAs with an unknown format: expected an error")
+	}
+}
+
+// isJSONFile reports whether the named file holds a JSON object.
+func isJSONFile(t *testing.T, name string) bool {
+	t.Helper()
+	b, err := os.ReadFile(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var v map[string]interface{}
+	return json.Unmarshal(b, &v) == nil
+}
+
+// TestSaveKeysAsJSON writes a classic and then a post-quantum key pair as
+// JSON, rotates between them, and checks that the files are JSON, that the
+// secret seeds are kept, and that factotum loads every key.
+func TestSaveKeysAsJSON(t *testing.T) {
+	const seed1 = "latoj-katuf-kijuh-latuh.lanon-kunol-kinoz-lanuj"
+	dir := t.TempDir()
+	pub1, priv1, _, err := FromSecret("p256", seed1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pub2, priv2, _, err := FromSecret("p256+mlkem768", pqSeed)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := SaveKeysAs(JSON, dir, false, pub1, priv1, seed1); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"public.upspinkey", "secret.upspinkey"} {
+		if !isJSONFile(t, filepath.Join(dir, name)) {
+			t.Errorf("%s is not JSON", name)
+		}
+	}
+	var sf factotum.PrivateKeyFile
+	b, _ := os.ReadFile(filepath.Join(dir, "secret.upspinkey"))
+	if err := json.Unmarshal(b, &sf); err != nil || sf.SecretSeed != seed1 {
+		t.Errorf("secret.upspinkey secret_seed = %q, %v; want %q", sf.SecretSeed, err, seed1)
+	}
+	f, err := factotum.NewFromDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.PublicKey() != upspin.PublicKey(pub1) {
+		t.Errorf("factotum key after a JSON save is not the saved key")
+	}
+
+	// Rotate to the post-quantum pair: the archive is JSON with one pair.
+	if err := SaveKeysAs(JSON, dir, true, pub2, priv2, pqSeed); err != nil {
+		t.Fatal(err)
+	}
+	archive := filepath.Join(dir, "secret2.upspinkey")
+	if !isJSONFile(t, archive) {
+		t.Fatal("secret2.upspinkey is not JSON after a JSON rotation")
+	}
+	var af factotum.ArchiveFile
+	b, _ = os.ReadFile(archive)
+	if err := json.Unmarshal(b, &af); err != nil {
+		t.Fatal(err)
+	}
+	if len(af.Keys) != 1 || af.Keys[0].Public.Type != "p256" || af.Keys[0].Private.SecretSeed != seed1 {
+		t.Errorf("archive = %+v; want the p256 pair with its seed", af.Keys)
+	}
+	if fi, err := os.Stat(archive); err != nil || fi.Mode().Perm() != 0600 {
+		t.Errorf("secret2.upspinkey mode = %v, %v; want 0600", fi.Mode().Perm(), err)
+	}
+	f, err = factotum.NewFromDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.PublicKey() != upspin.PublicKey(pub2) {
+		t.Errorf("factotum current key is not the rotated key")
+	}
+	if _, err := f.PublicKeyFromHash(factotum.KeyHash(upspin.PublicKey(pub1))); err != nil {
+		t.Errorf("factotum does not know the archived key: %v", err)
+	}
+
+	// Rotating again to the same pair changes nothing.
+	before, _ := os.ReadFile(archive)
+	if err := SaveKeysAs(JSON, dir, true, pub2, priv2, ""); err != nil {
+		t.Fatal(err)
+	}
+	if after, _ := os.ReadFile(archive); !bytes.Equal(before, after) {
+		t.Error("rotating to the same keys changed the archive")
+	}
+}
+
+// TestSaveKeysAsJSONFromLines rotates keys written in the line format, with
+// a line-format archive, to JSON: the whole archive becomes JSON and keeps
+// every earlier key.
+func TestSaveKeysAsJSONFromLines(t *testing.T) {
+	const (
+		seed1 = "latoj-katuf-kijuh-latuh.lanon-kunol-kinoz-lanuj"
+		seed2 = "kajug-kidod-kajug-latoh.litoj-lanoh-latol-kinoh"
+	)
+	dir := t.TempDir()
+	pub1, priv1, _, err := FromSecret("p256", seed1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pub2, priv2, _, err := FromSecret("p384", seed2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pub3, priv3, _, err := FromSecret("p256+mlkem768", pqSeed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Two saves in the line format leave one pair in a line archive.
+	if err := SaveKeys(dir, false, pub1, priv1, seed1); err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveKeys(dir, true, pub2, priv2, seed2); err != nil {
+		t.Fatal(err)
+	}
+	archive := filepath.Join(dir, "secret2.upspinkey")
+	if isJSONFile(t, archive) {
+		t.Fatal("the line-format archive is JSON")
+	}
+	if err := SaveKeysAs(JSON, dir, true, pub3, priv3, pqSeed); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"public.upspinkey", "secret.upspinkey", "secret2.upspinkey"} {
+		if !isJSONFile(t, filepath.Join(dir, name)) {
+			t.Errorf("%s is not JSON", name)
+		}
+	}
+	var af factotum.ArchiveFile
+	b, _ := os.ReadFile(archive)
+	if err := json.Unmarshal(b, &af); err != nil {
+		t.Fatal(err)
+	}
+	if len(af.Keys) != 2 || af.Keys[0].Public.Type != "p256" || af.Keys[1].Public.Type != "p384" {
+		t.Fatalf("archive = %+v; want the p256 and p384 pairs, in that order", af.Keys)
+	}
+	if af.Keys[0].Private.SecretSeed != seed1 || af.Keys[1].Private.SecretSeed != seed2 {
+		t.Errorf("archive lost a secret seed: %+v", af.Keys)
+	}
+	f, err := factotum.NewFromDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, pub := range []string{pub1, pub2} {
+		if _, err := f.PublicKeyFromHash(factotum.KeyHash(upspin.PublicKey(pub))); err != nil {
+			t.Errorf("factotum does not know an archived key: %v", err)
+		}
+	}
+	if f.PublicKey() != upspin.PublicKey(pub3) {
+		t.Errorf("factotum current key is not the post-quantum key")
+	}
+
+	// Rotating back to the line format turns the JSON archive into lines.
+	if err := SaveKeysAs(Lines, dir, true, pub1, priv1, ""); err != nil {
+		t.Fatal(err)
+	}
+	if isJSONFile(t, archive) || isJSONFile(t, filepath.Join(dir, "public.upspinkey")) {
+		t.Error("a line-format rotation left JSON files")
+	}
+	if _, err := factotum.NewFromDir(dir); err != nil {
+		t.Errorf("keys do not load after rotating back to lines: %v", err)
+	}
+}

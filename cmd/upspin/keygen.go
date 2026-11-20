@@ -34,6 +34,12 @@ a curve, optionally followed by +mlkem768 or +mlkem1024 for a
 post-quantum key. Post-quantum key types need the -eepq global flag
 and a 256 bit secret seed.
 
+The -format flag says how the key files are written: "json" (the
+default), objects with named fields, or "lines", the older line format.
+Releases since v46.1.0 read both; use -format=lines for keys that older
+releases must read. A rotation writes the archive secret2.upspinkey in
+the same format, converting what is already there.
+
 See the description for rotate for information about updating keys.
 `
 	// Keep flags in sync with signup.go. New flags here should appear
@@ -43,12 +49,26 @@ See the description for rotate for information about updating keys.
 		curve      = fs.String("curve", "p256", curveFlagHelp)
 		secretSeed = fs.String("secretseed", "", "the seed containing a 128 bit secret (256 bit for post-quantum key types) in proquint format or a file that contains it")
 		rotate     = fs.Bool("rotate", false, "back up the existing keys and replace them with new ones")
+		format     = fs.String("format", string(keygen.JSON), keyFormatFlagHelp)
 	)
-	s.ParseFlags(fs, args, help, "keygen [-curve=256] [-secretseed=seed] <directory>")
+	s.ParseFlags(fs, args, help, "keygen [-curve=256] [-secretseed=seed] [-format=json|lines] <directory>")
 	if fs.NArg() != 1 {
 		usageAndExit(fs)
 	}
-	s.keygenCommand(fs.Arg(0), *curve, *secretSeed, *rotate)
+	s.keygenCommand(fs.Arg(0), *curve, *secretSeed, *rotate, s.keyFormat(*format))
+}
+
+// keyFormatFlagHelp is the help text of the -format flag shared by the
+// commands that write key files.
+const keyFormatFlagHelp = "key file `format`: json, or lines for releases before v46.1.0"
+
+// keyFormat returns the key file format named by a -format flag, or exits.
+func (s *State) keyFormat(name string) keygen.Format {
+	f, err := keygen.ParseFormat(name)
+	if err != nil {
+		s.Exit(err)
+	}
+	return f
 }
 
 // curveFlagHelp is the help text of the -curve flag shared by the commands
@@ -63,7 +83,7 @@ func (s *State) checkKeyType(curve string) {
 	}
 }
 
-func (s *State) keygenCommand(where, curve, secretseed string, rotate bool) {
+func (s *State) keygenCommand(where, curve, secretseed string, rotate bool, format keygen.Format) {
 	s.checkKeyType(curve)
 
 	public, private, secretStr, err := s.createKeys(curve, secretseed)
@@ -71,7 +91,7 @@ func (s *State) keygenCommand(where, curve, secretseed string, rotate bool) {
 		s.Exitf("creating keys: %v", err)
 	}
 
-	err = keygen.SaveKeys(where, rotate, public, private, secretStr)
+	err = keygen.SaveKeysAs(format, where, rotate, public, private, secretStr)
 	if err != nil {
 		s.Exitf("keys not generated: %s", err)
 	}

@@ -266,3 +266,134 @@ func ArchiveFromFile(data []byte) ([]byte, error) {
 	}
 	return []byte(b.String()), nil
 }
+
+// The functions below go the other way: from the line format to the JSON
+// form, for writers of key files (key/keygen).
+
+// splitLines returns the non-empty lines of s, without carriage returns.
+func splitLines(s string) []string {
+	var out []string
+	for _, l := range strings.Split(strings.ReplaceAll(s, "\r", ""), "\n") {
+		if l != "" {
+			out = append(out, l)
+		}
+	}
+	return out
+}
+
+// PublicKeyFileFromKey returns the JSON form of a public key written in the
+// line format.
+func PublicKeyFileFromKey(pub upspin.PublicKey) (PublicKeyFile, error) {
+	const op errors.Op = "factotum.PublicKeyFileFromKey"
+	lines := splitLines(string(pub))
+	if len(lines) == 0 {
+		return PublicKeyFile{}, errors.E(op, errors.Invalid, errors.Str("empty public key"))
+	}
+	_, kem, err := ParseKeyType(lines[0])
+	if err != nil {
+		return PublicKeyFile{}, errors.E(op, errors.Invalid, err)
+	}
+	want := 3
+	if kem != NoKEM {
+		want = 4
+	}
+	if len(lines) != want {
+		return PublicKeyFile{}, errors.E(op, errors.Invalid, errors.Errorf("public key of type %q has %d lines, want %d", lines[0], len(lines), want))
+	}
+	f := PublicKeyFile{Type: lines[0], X: lines[1], Y: lines[2]}
+	if kem != NoKEM {
+		f.EncapsulationKey = lines[3]
+	}
+	// Check that the JSON form gives back the same key.
+	if _, err := f.publicLines(); err != nil {
+		return PublicKeyFile{}, errors.E(op, errors.Invalid, err)
+	}
+	return f, nil
+}
+
+// PrivateKeyFileFromLines returns the JSON form of a private key written in
+// the line format, as keygen writes it: the last line may end in
+// " # <secret seed>", which becomes the "secret_seed" field. keyType is the
+// key type of the matching public key, which says how many lines to expect.
+func PrivateKeyFileFromLines(keyType, priv string) (PrivateKeyFile, error) {
+	const op errors.Op = "factotum.PrivateKeyFileFromLines"
+	_, kem, err := ParseKeyType(keyType)
+	if err != nil {
+		return PrivateKeyFile{}, errors.E(op, errors.Invalid, err)
+	}
+	lines := splitLines(priv)
+	var seed string
+	if n := len(lines); n > 0 {
+		if i := strings.Index(lines[n-1], " # "); i >= 0 {
+			seed = strings.TrimSpace(lines[n-1][i+len(" # "):])
+			lines[n-1] = lines[n-1][:i]
+		}
+	}
+	want := 1
+	if kem != NoKEM {
+		want = 2
+	}
+	if len(lines) != want {
+		return PrivateKeyFile{}, errors.E(op, errors.Invalid, errors.Errorf("private key for type %q has %d lines, want %d", keyType, len(lines), want))
+	}
+	f := PrivateKeyFile{D: strings.TrimSpace(lines[0]), SecretSeed: seed}
+	if kem != NoKEM {
+		f.KEMSeed = strings.TrimSpace(lines[1])
+	}
+	if _, err := f.privateLines(keyType); err != nil {
+		return PrivateKeyFile{}, errors.E(op, errors.Invalid, err)
+	}
+	return f, nil
+}
+
+// ArchiveFileFromLines returns the JSON form of a key archive
+// (secret2.upspinkey) written in the line format. Unlike the reader in
+// NewFromKeys, which stops at the first block it does not understand, it
+// returns an error for anything it cannot convert, so that a rewrite never
+// drops a key pair.
+func ArchiveFileFromLines(data []byte) (ArchiveFile, error) {
+	const op errors.Op = "factotum.ArchiveFileFromLines"
+	lines := splitLines(string(data))
+	f := ArchiveFile{Keys: []ArchivedKeyPair{}}
+	for len(lines) > 0 {
+		if !strings.HasPrefix(lines[0], "# EE") {
+			return ArchiveFile{}, errors.E(op, errors.Invalid, errors.Errorf("key %d: line %q is not a \"# EE\" header", len(f.Keys), lines[0]))
+		}
+		date := strings.TrimSpace(strings.TrimPrefix(lines[0], "# EE"))
+		if len(lines) < 2 {
+			return ArchiveFile{}, errors.E(op, errors.Invalid, errors.Errorf("key %d: no key after the header", len(f.Keys)))
+		}
+		_, kem, err := ParseKeyType(lines[1])
+		if err != nil {
+			return ArchiveFile{}, errors.E(op, errors.Invalid, errors.Errorf("key %d: %v", len(f.Keys), err))
+		}
+		npub, npriv := 3, 1
+		if kem != NoKEM {
+			npub, npriv = 4, 2
+		}
+		if len(lines) < 1+npub+npriv {
+			return ArchiveFile{}, errors.E(op, errors.Invalid, errors.Errorf("key %d: incomplete key pair", len(f.Keys)))
+		}
+		pub, err := PublicKeyFileFromKey(upspin.PublicKey(strings.Join(lines[1:1+npub], "\n")))
+		if err != nil {
+			return ArchiveFile{}, errors.E(op, errors.Errorf("key %d: public: %v", len(f.Keys), err))
+		}
+		priv, err := PrivateKeyFileFromLines(pub.Type, strings.Join(lines[1+npub:1+npub+npriv], "\n"))
+		if err != nil {
+			return ArchiveFile{}, errors.E(op, errors.Errorf("key %d: private: %v", len(f.Keys), err))
+		}
+		f.Keys = append(f.Keys, ArchivedKeyPair{Date: date, Public: pub, Private: priv})
+		lines = lines[1+npub+npriv:]
+	}
+	return f, nil
+}
+
+// MarshalKeyFile returns the JSON text of a key file (a PublicKeyFile,
+// PrivateKeyFile or ArchiveFile), indented, with a final newline.
+func MarshalKeyFile(v interface{}) ([]byte, error) {
+	b, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	return append(b, '\n'), nil
+}
