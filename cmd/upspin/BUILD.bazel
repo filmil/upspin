@@ -95,6 +95,7 @@ go_test(
     ],
     embed = [":upspin_lib"],
     deps = [
+        "//factotum",
         "//key/keygen",
         "//upbox",
         "//upspin",

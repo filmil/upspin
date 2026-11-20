@@ -14,6 +14,7 @@ import (
 	"strings"
 	"testing"
 
+	"upspin.io/factotum"
 	"upspin.io/upbox"
 	"upspin.io/upspin"
 )
@@ -304,6 +305,21 @@ func keyVerify(t *testing.T, name, prefix string) {
 	key, err := os.ReadFile(name)
 	if err != nil {
 		t.Errorf("cannot read key %q: %v", name, err)
+	}
+	// The key files may be written as JSON (keygen -format); compare
+	// them in the line format, as the factotum reads them.
+	switch filepath.Base(name) {
+	case "public.upspinkey":
+		var pub upspin.PublicKey
+		pub, err = factotum.PublicKeyFromFile(key)
+		key = []byte(pub)
+	case "secret.upspinkey":
+		key, err = factotum.PrivateKeyFromFile(key)
+	case "secret2.upspinkey":
+		key, err = factotum.ArchiveFromFile(key)
+	}
+	if err != nil {
+		t.Errorf("cannot parse key %q: %v", name, err)
 	}
 	if !strings.Contains(string(key), prefix) {
 		if len(key) > 16 {
