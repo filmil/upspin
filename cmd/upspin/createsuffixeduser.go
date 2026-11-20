@@ -42,9 +42,10 @@ rather than this command.
 		rotate      = fs.Bool("rotate", false, "back up the existing keys and replace them with new ones")
 		secrets     = fs.String("secrets", "", "`directory` to store key pair")
 		secretseed  = fs.String("secretseed", "", "the seed containing a 128 bit secret (256 bit for post-quantum key types) in proquint format or a file that contains it")
-		format      = fs.String("format", "json", keyFormatFlagHelp)
+		format      = fs.String("format", "auto", keyFormatFlagHelp)
 	)
 	s.ParseFlags(fs, args, help, "createsuffixeduser <suffixed-user-name>")
+	keyFormat := s.keyFormat(*format)
 
 	if fs.NArg() != 1 {
 		usageAndExit(fs)
@@ -146,7 +147,7 @@ rather than this command.
 		os.Remove(configFN)
 		s.Exit(err)
 	}
-	err = keygen.SaveKeysAs(s.keyFormat(*format), *secrets, *rotate, pubk, privk, proquint)
+	err = keygen.SaveKeysAs(keyFormat, *secrets, *rotate, pubk, privk, proquint)
 	if err != nil {
 		os.Remove(configFN)
 		s.Exit(err)

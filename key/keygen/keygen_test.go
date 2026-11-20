@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -443,7 +444,7 @@ func TestSaveKeysFromJSONPostQuantum(t *testing.T) {
 }
 
 func TestParseFormat(t *testing.T) {
-	for in, want := range map[string]Format{"json": JSON, "lines": Lines} {
+	for in, want := range map[string]Format{"json": JSON, "lines": Lines, "auto": Auto} {
 		if got, err := ParseFormat(in); err != nil || got != want {
 			t.Errorf("ParseFormat(%q) = %q, %v; want %q", in, got, err, want)
 		}
@@ -521,8 +522,10 @@ func TestSaveKeysAsJSON(t *testing.T) {
 	if len(af.Keys) != 1 || af.Keys[0].Public.Type != "p256" || af.Keys[0].Private.SecretSeed != seed1 {
 		t.Errorf("archive = %+v; want the p256 pair with its seed", af.Keys)
 	}
-	if fi, err := os.Stat(archive); err != nil || fi.Mode().Perm() != 0600 {
-		t.Errorf("secret2.upspinkey mode = %v, %v; want 0600", fi.Mode().Perm(), err)
+	if fi, err := os.Stat(archive); err != nil {
+		t.Error(err)
+	} else if fi.Mode().Perm() != 0600 {
+		t.Errorf("secret2.upspinkey mode = %v; want 0600", fi.Mode().Perm())
 	}
 	f, err = factotum.NewFromDir(dir)
 	if err != nil {
@@ -535,13 +538,36 @@ func TestSaveKeysAsJSON(t *testing.T) {
 		t.Errorf("factotum does not know the archived key: %v", err)
 	}
 
-	// Rotating again to the same pair changes nothing.
+	// Rotating again to the same pair, whose seed is in secret.upspinkey,
+	// changes nothing.
 	before, _ := os.ReadFile(archive)
+	secretBefore, _ := os.ReadFile(filepath.Join(dir, "secret.upspinkey"))
 	if err := SaveKeysAs(JSON, dir, true, pub2, priv2, ""); err != nil {
 		t.Fatal(err)
 	}
 	if after, _ := os.ReadFile(archive); !bytes.Equal(before, after) {
 		t.Error("rotating to the same keys changed the archive")
+	}
+	if after, _ := os.ReadFile(filepath.Join(dir, "secret.upspinkey")); !bytes.Equal(secretBefore, after) {
+		t.Error("rotating to the same keys changed secret.upspinkey")
+	}
+
+	// The same pair in the line format rewrites the key files only, and
+	// keeps the seed.
+	if err := SaveKeysAs(Lines, dir, true, pub2, priv2, ""); err != nil {
+		t.Fatal(err)
+	}
+	if after, _ := os.ReadFile(archive); !bytes.Equal(before, after) {
+		t.Error("a format change of the same keys changed the archive")
+	}
+	if isJSONFile(t, filepath.Join(dir, "secret.upspinkey")) || isJSONFile(t, filepath.Join(dir, "public.upspinkey")) {
+		t.Error("a format change to lines left JSON key files")
+	}
+	if b, _ := os.ReadFile(filepath.Join(dir, "secret.upspinkey")); !strings.Contains(string(b), "# "+pqSeed) {
+		t.Errorf("the seed was lost in the format change: %q", b)
+	}
+	if f, err := factotum.NewFromDir(dir); err != nil || f.PublicKey() != upspin.PublicKey(pub2) {
+		t.Errorf("keys after the format change: %v", err)
 	}
 }
 
@@ -616,7 +642,157 @@ func TestSaveKeysAsJSONFromLines(t *testing.T) {
 	if isJSONFile(t, archive) || isJSONFile(t, filepath.Join(dir, "public.upspinkey")) {
 		t.Error("a line-format rotation left JSON files")
 	}
-	if _, err := factotum.NewFromDir(dir); err != nil {
-		t.Errorf("keys do not load after rotating back to lines: %v", err)
+	f, err = factotum.NewFromDir(dir)
+	if err != nil {
+		t.Fatalf("keys do not load after rotating back to lines: %v", err)
+	}
+	for _, pub := range []string{pub1, pub2, pub3} {
+		if _, err := f.PublicKeyFromHash(factotum.KeyHash(upspin.PublicKey(pub))); err != nil {
+			t.Errorf("a key is missing after rotating back to lines: %v", err)
+		}
+	}
+	b, _ = os.ReadFile(archive)
+	for _, seed := range []string{seed1, seed2, pqSeed} {
+		if !strings.Contains(string(b), "# "+seed) {
+			t.Errorf("the line archive lost seed %q", seed)
+		}
+	}
+}
+
+// TestSaveKeysAsJSONArchiveGrows rotates three times in JSON: the archive
+// keeps every earlier pair, with its date and seed, classic and
+// post-quantum.
+func TestSaveKeysAsJSONArchiveGrows(t *testing.T) {
+	const (
+		seed1 = "latoj-katuf-kijuh-latuh.lanon-kunol-kinoz-lanuj"
+		seed2 = "kajug-kidod-kajug-latoh.litoj-lanoh-latol-kinoh"
+	)
+	dir := t.TempDir()
+	pub1, priv1, _, err := FromSecret("p256", seed1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pub2, priv2, _, err := FromSecret("p256+mlkem768", pqSeed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pub3, priv3, _, err := FromSecret("p384", seed2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, k := range []struct{ pub, priv, seed string }{{pub1, priv1, seed1}, {pub2, priv2, pqSeed}, {pub3, priv3, seed2}} {
+		if err := SaveKeysAs(JSON, dir, i > 0, k.pub, k.priv, k.seed); err != nil {
+			t.Fatalf("save %d: %v", i, err)
+		}
+	}
+	var af factotum.ArchiveFile
+	b, err := os.ReadFile(filepath.Join(dir, "secret2.upspinkey"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(b, &af); err != nil {
+		t.Fatal(err)
+	}
+	if len(af.Keys) != 2 {
+		t.Fatalf("archive has %d pairs, want 2", len(af.Keys))
+	}
+	if k := af.Keys[0]; k.Public.Type != "p256" || k.Private.SecretSeed != seed1 || k.Date == "" {
+		t.Errorf("archive pair 0 = %+v", k)
+	}
+	if k := af.Keys[1]; k.Public.Type != "p256+mlkem768" || k.Public.EncapsulationKey == "" || k.Private.KEMSeed == "" || k.Private.SecretSeed != pqSeed {
+		t.Errorf("archive pair 1 = %+v", k)
+	}
+	f, err := factotum.NewFromDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, pub := range []string{pub1, pub2, pub3} {
+		if _, err := f.PublicKeyFromHash(factotum.KeyHash(upspin.PublicKey(pub))); err != nil {
+			t.Errorf("factotum does not know a key: %v", err)
+		}
+	}
+}
+
+// TestSaveKeysAsBadInputChangesNothing checks that a rotation with a bad
+// archive or bad new keys leaves all three files as they were.
+func TestSaveKeysAsBadInputChangesNothing(t *testing.T) {
+	const seed1 = "latoj-katuf-kijuh-latuh.lanon-kunol-kinoz-lanuj"
+	pub1, priv1, _, err := FromSecret("p256", seed1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pub2, priv2, _, err := FromSecret("p256+mlkem768", pqSeed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot := func(dir string) map[string]string {
+		m := map[string]string{}
+		for _, n := range []string{"public.upspinkey", "secret.upspinkey", "secret2.upspinkey"} {
+			b, _ := os.ReadFile(filepath.Join(dir, n))
+			m[n] = string(b)
+		}
+		return m
+	}
+	for _, tc := range []struct {
+		name, archive, pub, priv string
+	}{
+		{"unconvertible archive", "# EE\np256\n1\n2\n3\nleftover\n", pub2, priv2},
+		{"bad new public key", "", "p256\nnot a number\n", priv2},
+		{"mismatched new private key", "", pub2, priv1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			if err := SaveKeysAs(JSON, dir, false, pub1, priv1, seed1); err != nil {
+				t.Fatal(err)
+			}
+			if tc.archive != "" {
+				if err := os.WriteFile(filepath.Join(dir, "secret2.upspinkey"), []byte(tc.archive), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			before := snapshot(dir)
+			if err := SaveKeysAs(JSON, dir, true, tc.pub, tc.priv, ""); err == nil {
+				t.Error("expected an error")
+			}
+			if after := snapshot(dir); !reflect.DeepEqual(before, after) {
+				t.Errorf("files changed:\nbefore %q\nafter  %q", before, after)
+			}
+		})
+	}
+}
+
+// TestSaveKeysAsAuto checks that Auto writes JSON for new keys and keeps
+// the existing format on a rotation.
+func TestSaveKeysAsAuto(t *testing.T) {
+	const (
+		seed1 = "latoj-katuf-kijuh-latuh.lanon-kunol-kinoz-lanuj"
+		seed2 = "kajug-kidod-kajug-latoh.litoj-lanoh-latol-kinoh"
+	)
+	pub1, priv1, _, err := FromSecret("p256", seed1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pub2, priv2, _, err := FromSecret("p384", seed2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := SaveKeysAs(Auto, dir, false, pub1, priv1, seed1); err != nil {
+		t.Fatal(err)
+	}
+	if !isJSONFile(t, filepath.Join(dir, "secret.upspinkey")) {
+		t.Error("Auto did not write JSON for new keys")
+	}
+	lines := t.TempDir()
+	if err := SaveKeys(lines, false, pub1, priv1, seed1); err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveKeysAs(Auto, lines, true, pub2, priv2, seed2); err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range []string{"public.upspinkey", "secret.upspinkey", "secret2.upspinkey"} {
+		if isJSONFile(t, filepath.Join(lines, n)) {
+			t.Errorf("Auto rotation of line-format keys wrote %s as JSON", n)
+		}
 	}
 }

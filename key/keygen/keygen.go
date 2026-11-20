@@ -32,15 +32,18 @@ const (
 	JSON Format = "json"
 	// Lines writes the line format, which every release reads.
 	Lines Format = "lines"
+	// Auto writes JSON for new keys, and keeps the format of the
+	// existing key files on a rotation.
+	Auto Format = "auto"
 )
 
-// ParseFormat returns the Format named by s: "json" or "lines".
+// ParseFormat returns the Format named by s: "json", "lines" or "auto".
 func ParseFormat(s string) (Format, error) {
 	switch f := Format(s); f {
-	case JSON, Lines:
+	case JSON, Lines, Auto:
 		return f, nil
 	}
-	return "", errors.E(errors.Invalid, errors.Errorf("unknown key file format %q; use %q or %q", s, JSON, Lines))
+	return "", errors.E(errors.Invalid, errors.Errorf("unknown key file format %q; use %q, %q or %q", s, JSON, Lines, Auto))
 }
 
 // secret represents the secret seed for a key.
@@ -178,29 +181,12 @@ func writeKeyFile(name, key string) error {
 	return fd.Close()
 }
 
-// writeKeys saves both the public and private keys to their respective files,
-// in the given format. If secretStr is non-empty it is kept with the private
-// key: as a comment in the line format, or as "secret_seed" in JSON.
-// writeKeys will overwrite any existing keys.
-func writeKeys(format Format, where, publicKey, privateKey, secretStr string) error {
-	if format == JSON {
-		pub, priv, err := jsonKeys(publicKey, privateKey, secretStr)
-		if err != nil {
-			return err
-		}
-		publicKey, privateKey = pub, priv
-	} else if secretStr != "" {
-		privateKey = strings.TrimSpace(privateKey) + " # " + secretStr + "\n"
-	}
-	err := writeKeyFile(filepath.Join(where, "secret.upspinkey"), privateKey)
-	if err != nil {
-		return err
-	}
-	return writeKeyFile(filepath.Join(where, "public.upspinkey"), publicKey)
-}
-
-// jsonKeys returns the JSON files for a key pair given in the line format.
-func jsonKeys(publicKey, privateKey, secretStr string) (pub, priv string, err error) {
+// encodeKeys returns the contents of public.upspinkey and secret.upspinkey
+// for a key pair given in the line format, written in format, with secretStr
+// kept with the private key: as a comment in the line format, or as
+// "secret_seed" in JSON. It checks the keys, so that nothing is written for
+// a bad pair.
+func encodeKeys(format Format, publicKey, privateKey, secretStr string) (pub, priv string, err error) {
 	pf, err := factotum.PublicKeyFileFromKey(upspin.PublicKey(publicKey))
 	if err != nil {
 		return "", "", err
@@ -212,6 +198,13 @@ func jsonKeys(publicKey, privateKey, secretStr string) (pub, priv string, err er
 	if secretStr != "" {
 		sf.SecretSeed = secretStr
 	}
+	if format == Lines {
+		priv = keyMaterial(privateKey) // The seed comes from sf below.
+		if sf.SecretSeed != "" {
+			priv += " # " + sf.SecretSeed
+		}
+		return publicKey, priv + "\n", nil
+	}
 	pb, err := factotum.MarshalKeyFile(pf)
 	if err != nil {
 		return "", "", err
@@ -221,6 +214,36 @@ func jsonKeys(publicKey, privateKey, secretStr string) (pub, priv string, err er
 		return "", "", err
 	}
 	return string(pb), string(sb), nil
+}
+
+// writeKeys saves the contents of both key files, as encodeKeys returns
+// them. writeKeys will overwrite any existing keys.
+func writeKeys(where, publicFile, privateFile string) error {
+	err := writeKeyFile(filepath.Join(where, "secret.upspinkey"), privateFile)
+	if err != nil {
+		return err
+	}
+	return writeKeyFile(filepath.Join(where, "public.upspinkey"), publicFile)
+}
+
+// keyMaterial returns the key values of a key in the line format, without
+// comments or blank lines, the way the factotum reads them.
+func keyMaterial(key string) string {
+	var out []string
+	for _, l := range strings.Split(key, "\n") {
+		if i := strings.IndexByte(l, '#'); i >= 0 {
+			l = l[:i]
+		}
+		if l = strings.TrimSpace(l); l != "" {
+			out = append(out, l)
+		}
+	}
+	return strings.Join(out, "\n")
+}
+
+// isJSONFile reports whether the contents of a key file are JSON.
+func isJSONFile(data []byte) bool {
+	return bytes.HasPrefix(bytes.TrimSpace(data), []byte("{"))
 }
 
 // SaveKeys is SaveKeysAs in the line format, which every release reads.
@@ -235,10 +258,18 @@ func SaveKeys(where string, rotate bool, newPublic, newPrivate, secretStr string
 // If rotate is false and there are existing keys, SaveKeysAs returns an error.
 // If rotate is true and there are no existing keys, SaveKeysAs returns an error.
 //
+// Auto writes JSON for a new directory, and keeps the format of the existing
+// key files on a rotation.
+//
 // In the JSON format, a rotation writes the whole archive as JSON, converting
 // one written in the line format; in the line format, it converts one written
-// as JSON to lines. Either way it first checks that the old keys and the
-// archive load together, and replaces the archive through a temporary file.
+// as JSON to lines. Either way it checks the new keys and that the old keys
+// and the archive load together before writing anything, and replaces the
+// archive through a temporary file.
+//
+// Rotating to the key pair already in place archives nothing. It rewrites the
+// key files only to change their format, keeping their secret seed unless a
+// new one is given.
 func SaveKeysAs(format Format, where string, rotate bool, newPublic, newPrivate, secretStr string) error {
 	if _, err := ParseFormat(string(format)); err != nil {
 		return err
@@ -250,14 +281,21 @@ func SaveKeysAs(format Format, where string, rotate bool, newPublic, newPrivate,
 	)
 
 	// Read existing key pair.
-	private, err := os.ReadFile(privateFile)
+	privateData, err := os.ReadFile(privateFile)
 	if os.IsNotExist(err) {
 		// There is nothing to save. Did we expect there to be?
 		if rotate {
 			return errors.Errorf("cannot rotate keys: no prior keys exist in %s", where)
 		}
+		if format == Auto {
+			format = JSON
+		}
 		// We didn't expect key rotation, so just write the new keys.
-		return writeKeys(format, where, newPublic, newPrivate, secretStr)
+		pub, priv, err := encodeKeys(format, newPublic, newPrivate, secretStr)
+		if err != nil {
+			return err
+		}
+		return writeKeys(where, pub, priv)
 	}
 	if err != nil {
 		return err
@@ -267,23 +305,46 @@ func SaveKeysAs(format Format, where string, rotate bool, newPublic, newPrivate,
 	if !rotate {
 		return errors.Errorf("prior keys exist in %s; rerun with rotate command to update keys", where)
 	}
+	if format == Auto {
+		format = Lines
+		if isJSONFile(privateData) {
+			format = JSON
+		}
+	}
 
-	public, err := os.ReadFile(publicFile)
+	publicData, err := os.ReadFile(publicFile)
 	if err != nil {
 		return err // Halt. Existing files are corrupted and need manual attention.
 	}
-	// The existing files may be written as JSON. The archive is written
-	// in the line format, so convert them first.
-	pub, err := factotum.PublicKeyFromFile(public)
+	// The existing files may be written as JSON. Work in the line format.
+	pub, err := factotum.PublicKeyFromFile(publicData)
 	if err != nil {
 		return err // Halt. Existing files are corrupted and need manual attention.
 	}
-	public = []byte(pub)
-	if private, err = factotum.PrivateKeyFromFile(private); err != nil {
+	public := []byte(pub)
+	private, err := factotum.PrivateKeyFromFile(privateData)
+	if err != nil {
 		return err // Halt. Existing files are corrupted and need manual attention.
 	}
-	if string(public) == newPublic && string(private) == newPrivate {
-		return nil // No need to save duplicates.
+
+	if keyMaterial(string(public)) == keyMaterial(newPublic) && keyMaterial(string(private)) == keyMaterial(newPrivate) {
+		// The same key pair: nothing to archive.
+		if (format == JSON) == isJSONFile(privateData) && secretStr == "" {
+			return nil
+		}
+		// Rewrite the key files in the requested format, keeping the
+		// existing seed unless a new one is given.
+		pub, priv, err := encodeKeys(format, string(public), string(private), secretStr)
+		if err != nil {
+			return err
+		}
+		return writeKeys(where, pub, priv)
+	}
+
+	// Encode the new keys first, so that a bad pair changes nothing.
+	newPub, newPriv, err := encodeKeys(format, newPublic, newPrivate, secretStr)
+	if err != nil {
+		return err
 	}
 
 	var modtime string
@@ -298,7 +359,7 @@ func SaveKeysAs(format Format, where string, rotate bool, newPublic, newPrivate,
 		if err := archiveJSON(archiveFile, public, private, strings.TrimSpace(modtime)); err != nil {
 			return err
 		}
-		return writeKeys(format, where, newPublic, newPrivate, secretStr)
+		return writeKeys(where, newPub, newPriv)
 	}
 
 	// An archive written as JSON cannot take a key pair appended in the
@@ -324,12 +385,13 @@ func SaveKeysAs(format Format, where string, rotate bool, newPublic, newPrivate,
 	}
 
 	// Write the new keys.
-	return writeKeys(format, where, newPublic, newPrivate, secretStr)
+	return writeKeys(where, newPub, newPriv)
 }
 
 // archiveJSON adds the old key pair, public and private in the line format,
 // to the key archive and writes the whole archive as JSON. It checks first
-// that the old pair and the archive load together.
+// that the old pair and the archive load together, and before replacing the
+// archive that every key in the new one loads.
 func archiveJSON(archiveFile string, public, private []byte, date string) error {
 	data, err := os.ReadFile(archiveFile)
 	if err != nil && !os.IsNotExist(err) {
@@ -342,6 +404,8 @@ func archiveJSON(archiveFile string, public, private []byte, date string) error 
 	if _, err := factotum.NewFromKeys(public, private, lines); err != nil {
 		return errors.Errorf("existing keys in %s do not load: %v", filepath.Dir(archiveFile), err)
 	}
+	// ArchiveFileFromLines fails on any block it cannot convert, so no
+	// key of the old archive is dropped silently.
 	f, err := factotum.ArchiveFileFromLines(lines)
 	if err != nil {
 		return err // Halt. The archive needs manual attention.
@@ -359,14 +423,24 @@ func archiveJSON(archiveFile string, public, private []byte, date string) error 
 	if err != nil {
 		return err
 	}
-	// The new archive must load with the old pair, and hold every key the
-	// old one held plus that pair.
+	// Every key of the new archive must load: look each one up by its hash
+	// in a factotum made from the old pair and the new archive.
 	check, err := factotum.ArchiveFromFile(out)
 	if err != nil {
 		return err
 	}
-	if _, err := factotum.NewFromKeys(public, private, check); err != nil {
+	fac, err := factotum.NewFromKeys(public, private, check)
+	if err != nil {
 		return errors.Errorf("the rewritten key archive does not load: %v", err)
+	}
+	for i, k := range f.Keys {
+		p := k.Public.Type + "\n" + k.Public.X + "\n" + k.Public.Y + "\n"
+		if k.Public.EncapsulationKey != "" {
+			p += k.Public.EncapsulationKey + "\n"
+		}
+		if _, err := fac.PublicKeyFromHash(factotum.KeyHash(upspin.PublicKey(p))); err != nil {
+			return errors.Errorf("the rewritten key archive does not hold key %d: %v", i, err)
+		}
 	}
 	return replaceFile(archiveFile, out)
 }

@@ -313,7 +313,7 @@ func PublicKeyFileFromKey(pub upspin.PublicKey) (PublicKeyFile, error) {
 
 // PrivateKeyFileFromLines returns the JSON form of a private key written in
 // the line format, as keygen writes it: the last line may end in
-// " # <secret seed>", which becomes the "secret_seed" field. keyType is the
+// "# <secret seed>", which becomes the "secret_seed" field. keyType is the
 // key type of the matching public key, which says how many lines to expect.
 func PrivateKeyFileFromLines(keyType, priv string) (PrivateKeyFile, error) {
 	const op errors.Op = "factotum.PrivateKeyFileFromLines"
@@ -321,13 +321,22 @@ func PrivateKeyFileFromLines(keyType, priv string) (PrivateKeyFile, error) {
 	if err != nil {
 		return PrivateKeyFile{}, errors.E(op, errors.Invalid, err)
 	}
-	lines := splitLines(priv)
+	// A "#" starts a comment, as in the reader (clean in factotum.go).
+	// The comment on the last key line is the secret seed, as keygen
+	// writes it; lines that hold only a comment are skipped.
+	var lines []string
 	var seed string
-	if n := len(lines); n > 0 {
-		if i := strings.Index(lines[n-1], " # "); i >= 0 {
-			seed = strings.TrimSpace(lines[n-1][i+len(" # "):])
-			lines[n-1] = lines[n-1][:i]
+	for _, l := range splitLines(priv) {
+		comment := ""
+		if i := strings.IndexByte(l, '#'); i >= 0 {
+			comment = strings.TrimSpace(l[i+1:])
+			l = l[:i]
 		}
+		if l = strings.TrimSpace(l); l == "" {
+			continue
+		}
+		lines = append(lines, l)
+		seed = comment
 	}
 	want := 1
 	if kem != NoKEM {
