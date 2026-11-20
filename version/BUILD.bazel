@@ -1,8 +1,22 @@
-load("@rules_go//go:def.bzl", "go_library")
+load("@rules_go//go:def.bzl", "go_library", "go_test")
 
+# The values come from tools/workspace_status.sh, and only in a --stamp
+# build, as the release job makes. Other builds leave them empty, and
+# Version() prints "devel".
 go_library(
     name = "version",
     srcs = ["version.go"],
     importpath = "upspin.io/version",
     visibility = ["//visibility:public"],
+    x_defs = {
+        "GitSHA": "{STABLE_GIT_COMMIT}",
+        "Release": "{STABLE_RELEASE_TAG}",
+        "buildTime": "{STABLE_BUILD_TIME}",
+    },
+)
+
+go_test(
+    name = "version_test",
+    srcs = ["version_test.go"],
+    embed = [":version"],
 )
