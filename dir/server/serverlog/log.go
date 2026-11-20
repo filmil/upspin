@@ -147,9 +147,19 @@ type root struct {
 // contents of rootFile to a reference in that storage backend whenever
 // rootFile is updated. The given config is used to generate a secret reference
 // name for the backup.
+//
+// If rootFile does not exist yet but the storage backend holds a backup of it,
+// newRoot restores the backup first. That happens when the server lost its log
+// directory, for example on a volume that did not survive a restart; the
+// tree blocks the root refers to are in the store, so the user's tree comes
+// back as of the last saved root. An existing but empty rootFile is a deleted
+// root, which is not restored.
 func newRoot(rootFile string, fac upspin.Factotum, s storage.Storage) (*root, error) {
 	var rootRef string
 	var err error
+	var backup []byte
+	_, statErr := os.Stat(rootFile)
+	missing := os.IsNotExist(statErr)
 	if s != nil {
 		// Use the provided factotum to generate the secret reference.
 		if fac == nil {
@@ -163,7 +173,7 @@ func newRoot(rootFile string, fac upspin.Factotum, s storage.Storage) (*root, er
 
 		// Try to access the storage backend now
 		// so a misconfiguration is caught at startup.
-		_, err = s.Download(rootRef)
+		backup, err = s.Download(rootRef)
 		if err != nil && !errors.Is(errors.NotExist, err) {
 			return nil, err
 		}
@@ -171,6 +181,15 @@ func newRoot(rootFile string, fac upspin.Factotum, s storage.Storage) (*root, er
 	f, err := os.OpenFile(rootFile, os.O_RDWR|os.O_CREATE, 0600)
 	if err != nil {
 		return nil, errors.E(errors.IO, err)
+	}
+	if missing && len(backup) > 0 {
+		if err := restoreRoot(f, backup); err != nil {
+			// Starting with no root is what happened before restores
+			// existed; the backup stays in storage for a later look.
+			log.Error.Printf("dir/server: not restoring %s from the storage backend: %v", filepath.Base(rootFile), err)
+		} else {
+			log.Info.Printf("dir/server: restored %s from the storage backend", filepath.Base(rootFile))
+		}
 	}
 	r := &root{file: f}
 	if s != nil {
@@ -180,6 +199,20 @@ func newRoot(rootFile string, fac upspin.Factotum, s storage.Storage) (*root, er
 		go r.saveLoop(s)
 	}
 	return r, nil
+}
+
+// restoreRoot writes a root backup to the new, empty root file f, if the
+// backup holds exactly one valid DirEntry.
+func restoreRoot(f *os.File, backup []byte) error {
+	var de upspin.DirEntry
+	more, err := de.Unmarshal(backup)
+	if err != nil {
+		return err
+	}
+	if len(more) != 0 {
+		return errors.Errorf("backup has %d left over bytes", len(more))
+	}
+	return overwriteAndSync(f, backup)
 }
 
 func hashRoot(base string, fac upspin.Factotum) (string, error) {

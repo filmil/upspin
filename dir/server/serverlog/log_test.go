@@ -615,6 +615,97 @@ func TestIndex(t *testing.T) {
 	}
 }
 
+// restoreFixture saves a root for a user in one log directory, so that a
+// test can open the same user in another, empty, log directory.
+func restoreFixture(t *testing.T) (storage.Storage, upspin.Factotum, upspin.UserName, upspin.DirEntry, *User) {
+	t.Helper()
+	store := notifyingStorage{storagetest.Memory(), make(chan bool, 1)}
+	fac, err := factotum.NewFromDir(testutil.Repo("key", "testdata", "test"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const name = upspin.UserName("restore@bar.com")
+	user, err := Open(name, t.TempDir(), fac, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := upspin.DirEntry{
+		Name:       "restore@bar.com/",
+		SignedName: "restore@bar.com/",
+		Writer:     "restore@bar.com",
+		Packing:    upspin.PlainPack,
+		Attr:       upspin.AttrDirectory,
+		Sequence:   42,
+		Time:       1234567890,
+	}
+	if err := user.SaveRoot(&root); err != nil {
+		t.Fatal(err)
+	}
+	<-store.onPut
+	return store, fac, name, root, user
+}
+
+// TestRestoreRootFromBackup opens a user whose log directory was lost: the
+// root comes back from the storage backend.
+func TestRestoreRootFromBackup(t *testing.T) {
+	store, fac, name, root, old := restoreFixture(t)
+	old.Close()
+
+	user, err := Open(name, t.TempDir(), fac, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer user.Close()
+	got, err := user.Root()
+	if err != nil {
+		t.Fatalf("Root after a lost log directory: %v", err)
+	}
+	if !reflect.DeepEqual(got, &root) {
+		t.Errorf("restored root = %v, want %v", got, root)
+	}
+}
+
+// TestDeletedRootStaysDeleted deletes a root and reopens the same log
+// directory: the backup, which deletion keeps, must not bring it back.
+func TestDeletedRootStaysDeleted(t *testing.T) {
+	store, fac, name, _, user := restoreFixture(t)
+	dir := filepath.Dir(user.rootFile())
+	if err := user.DeleteRoot(); err != nil {
+		t.Fatal(err)
+	}
+	user.Close()
+
+	user, err := Open(name, dir, fac, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer user.Close()
+	if _, err := user.Root(); !errors.Is(errors.NotExist, err) {
+		t.Errorf("Root after DeleteRoot and reopen: %v, want NotExist", err)
+	}
+}
+
+// TestDamagedBackupIsIgnored stores a backup that is not a DirEntry: the
+// user opens with no root, as before restores existed.
+func TestDamagedBackupIsIgnored(t *testing.T) {
+	store, fac, name, _, old := restoreFixture(t)
+	ref := old.root.ref
+	old.Close()
+	if err := store.Put(ref, []byte("not a dir entry")); err != nil {
+		t.Fatal(err)
+	}
+	<-store.(notifyingStorage).onPut
+
+	user, err := Open(name, t.TempDir(), fac, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer user.Close()
+	if _, err := user.Root(); !errors.Is(errors.NotExist, err) {
+		t.Errorf("Root with a damaged backup: %v, want NotExist", err)
+	}
+}
+
 type notifyingStorage struct {
 	storage.Storage
 	onPut chan bool
