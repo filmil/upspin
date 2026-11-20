@@ -48,13 +48,7 @@ func Start(cfg upspin.Config) (usingCache bool) {
 	// Start a cache server.
 	cacheErrorChan := make(chan bool)
 	go func() {
-		args := []string{"-log=" + log.GetLevel()}
-		args = addFlag(args, "config")
-		args = addFlag(args, "addr")
-		args = addFlag(args, "cachedir")
-		args = addFlag(args, "cachesize")
-		args = addFlag(args, "writethrough")
-		cmd := exec.Command("cacheserver", args...)
+		cmd := exec.Command("cacheserver", cacheserverArgs()...)
 		detach(cmd)
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
@@ -79,6 +73,19 @@ func Start(cfg upspin.Config) (usingCache bool) {
 
 	fmt.Fprintf(os.Stderr, "Timed out waiting for cacheserver to start.\n")
 	return
+}
+
+// cacheserverArgs returns the arguments of a cacheserver started by this
+// process: its log level, and those of its flags that the cacheserver also
+// takes, when they are not at their defaults. -eepq is one of them: without
+// it, a cacheserver refuses a config with "packing: eepq", and the process
+// that started it runs without a cache.
+func cacheserverArgs() []string {
+	args := []string{"-log=" + log.GetLevel()}
+	for _, name := range []string{"config", "addr", "cachedir", "cachesize", "writethrough", "eepq"} {
+		args = addFlag(args, name)
+	}
+	return args
 }
 
 // addFlag adds a flag to the command if it is at a non-default value.
