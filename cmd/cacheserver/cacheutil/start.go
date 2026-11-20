@@ -77,9 +77,11 @@ func Start(cfg upspin.Config) (usingCache bool) {
 
 // cacheserverArgs returns the arguments of a cacheserver started by this
 // process: its log level, and those of its flags that the cacheserver also
-// takes, when they are not at their defaults. -eepq is one of them: without
-// it, a cacheserver refuses a config with "packing: eepq", and the process
-// that started it runs without a cache.
+// takes (cmd/cacheserver parses flags.Server, which includes eepq), when they
+// are not at their defaults. Flags this process did not register are left
+// out. Without -eepq, a cacheserver refuses a config with "packing: eepq"
+// unless the config also says "experimental: eepq", and the process that
+// started it runs without a cache.
 func cacheserverArgs() []string {
 	args := []string{"-log=" + log.GetLevel()}
 	for _, name := range []string{"config", "addr", "cachedir", "cachesize", "writethrough", "eepq"} {
