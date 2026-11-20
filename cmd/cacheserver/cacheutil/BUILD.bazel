@@ -1,4 +1,4 @@
-load("@rules_go//go:def.bzl", "go_library")
+load("@rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
     name = "cacheutil",
@@ -13,4 +13,11 @@ go_library(
         "//log",
         "//upspin",
     ],
+)
+
+go_test(
+    name = "cacheutil_test",
+    srcs = ["start_test.go"],
+    embed = [":cacheutil"],
+    deps = ["//flags"],
 )
