@@ -148,24 +148,29 @@ type root struct {
 // rootFile is updated. The given config is used to generate a secret reference
 // name for the backup.
 //
-// If rootFile does not exist yet but the storage backend holds a backup of it,
+// If newRoot creates rootFile and the storage backend holds a backup of it,
 // newRoot restores the backup first. That happens when the server lost its log
 // directory, for example on a volume that did not survive a restart; the
 // tree blocks the root refers to are in the store, so the user's tree comes
-// back as of the last saved root. An existing but empty rootFile is a deleted
-// root, which is not restored.
+// back as of the last saved root.
+//
+// An existing but empty rootFile is a deleted root, which is not restored.
+// DeleteRoot keeps the backup, so a deleted root does come back if the log
+// directory is lost later.
+//
+// A backup that is not the user's root directory entry is logged and skipped,
+// and the user starts with no root, as before restores existed. Removing the
+// empty rootFile before the next start retries the restore.
 func newRoot(rootFile string, fac upspin.Factotum, s storage.Storage) (*root, error) {
 	var rootRef string
 	var err error
 	var backup []byte
-	_, statErr := os.Stat(rootFile)
-	missing := os.IsNotExist(statErr)
+	base := filepath.Base(rootFile)
 	if s != nil {
 		// Use the provided factotum to generate the secret reference.
 		if fac == nil {
 			return nil, errors.Str("cannot backup root: config has no factotum")
 		}
-		base := filepath.Base(rootFile)
 		rootRef, err = hashRoot(base, fac)
 		if err != nil {
 			return nil, err
@@ -178,17 +183,29 @@ func newRoot(rootFile string, fac upspin.Factotum, s storage.Storage) (*root, er
 			return nil, err
 		}
 	}
-	f, err := os.OpenFile(rootFile, os.O_RDWR|os.O_CREATE, 0600)
+	// O_EXCL tells whether this call created the file, even if the file
+	// appeared while the backup was downloading.
+	created := true
+	f, err := os.OpenFile(rootFile, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0600)
+	if os.IsExist(err) {
+		created = false
+		f, err = os.OpenFile(rootFile, os.O_RDWR, 0600)
+	}
 	if err != nil {
 		return nil, errors.E(errors.IO, err)
 	}
-	if missing && len(backup) > 0 {
-		if err := restoreRoot(f, backup); err != nil {
-			// Starting with no root is what happened before restores
-			// existed; the backup stays in storage for a later look.
-			log.Error.Printf("dir/server: not restoring %s from the storage backend: %v", filepath.Base(rootFile), err)
+	if created && len(backup) > 0 {
+		user := upspin.UserName(strings.TrimPrefix(base, rootFilePrefix))
+		if err := checkRootBackup(backup, user); err != nil {
+			// The backup stays in storage for a later look.
+			log.Error.Printf("dir/server: not restoring %s from the storage backend: %v", base, err)
+		} else if err := overwriteAndSync(f, backup); err != nil {
+			// Leave no partial root behind: the next start retries.
+			f.Close()
+			os.Remove(rootFile)
+			return nil, errors.E(errors.IO, err)
 		} else {
-			log.Info.Printf("dir/server: restored %s from the storage backend", filepath.Base(rootFile))
+			log.Info.Printf("dir/server: restored %s from the storage backend", base)
 		}
 	}
 	r := &root{file: f}
@@ -201,9 +218,9 @@ func newRoot(rootFile string, fac upspin.Factotum, s storage.Storage) (*root, er
 	return r, nil
 }
 
-// restoreRoot writes a root backup to the new, empty root file f, if the
-// backup holds exactly one valid DirEntry.
-func restoreRoot(f *os.File, backup []byte) error {
+// checkRootBackup reports whether backup holds exactly one DirEntry, and that
+// entry is the root directory of user.
+func checkRootBackup(backup []byte, user upspin.UserName) error {
 	var de upspin.DirEntry
 	more, err := de.Unmarshal(backup)
 	if err != nil {
@@ -212,7 +229,10 @@ func restoreRoot(f *os.File, backup []byte) error {
 	if len(more) != 0 {
 		return errors.Errorf("backup has %d left over bytes", len(more))
 	}
-	return overwriteAndSync(f, backup)
+	if want := upspin.PathName(user) + "/"; de.Name != want || !de.IsDir() {
+		return errors.Errorf("backup is %q, not the root directory %q", de.Name, want)
+	}
+	return nil
 }
 
 func hashRoot(base string, fac upspin.Factotum) (string, error) {
