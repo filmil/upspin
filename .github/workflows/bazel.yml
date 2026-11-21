@@ -28,6 +28,14 @@ jobs:
           disk-cache: ${{ github.job }}
           repository-cache: true
 
+      # Every kind of command must agree with MODULE.bazel.lock: one that
+      # resolved differently would rewrite it, as bazel query did before the
+      # registries were "common" in .bazelrc.
+      - name: Lockfile agrees with mod and query
+        run: |
+          bazel mod deps --lockfile_mode=error > /dev/null
+          bazel query --lockfile_mode=error //... > /dev/null
+
       - name: Bazel Build
         run: bazel build //...
 

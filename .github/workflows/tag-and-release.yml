@@ -161,13 +161,9 @@ jobs:
             ${{ runner.os }}-${{ matrix.arch }}-bazel-
       - name: "Build binaries for ${{ matrix.os }}_${{ matrix.arch }}"
         run: |
-          TARGETS=$(bazel query --lockfile_mode=off 'kind("go_binary", //cmd/...)')
+          TARGETS=$(bazel query 'kind("go_binary", //cmd/...)')
           # --config=release puts the commit and the release tag into
           # -version (version/BUILD.bazel); the checkout is the tag for that.
-          # --lockfile_mode=off (here, on the query above and in
-          # --config=release): cross-compiling rewrote MODULE.bazel.lock,
-          # and the stamp then said "-dirty" (v46.3.0 to v46.5.1). A
-          # release must not write to the tree it stamps.
           bazel build --config=release --platforms=@rules_go//go/toolchain:${{ matrix.os }}_${{ matrix.arch }} $(echo $TARGETS)
           # What the stamp saw (tools/workspace_status.sh), read right after
           # the build that stamped, before another Bazel command rewrites it.
@@ -175,7 +171,7 @@ jobs:
       - name: "Package binaries"
         run: |
           mkdir -p release-binaries
-          TARGETS=$(bazel query --lockfile_mode=off 'kind("go_binary", //cmd/...)')
+          TARGETS=$(bazel query 'kind("go_binary", //cmd/...)')
           FILES=$(bazel cquery "set($TARGETS)" --config=release --platforms=@rules_go//go/toolchain:${{ matrix.os }}_${{ matrix.arch }} --output=files 2>/dev/null | grep bazel-out)
           cp $FILES release-binaries/
           zip -j -r upspin-binaries-${{ matrix.os }}-${{ matrix.arch }}.zip release-binaries/
