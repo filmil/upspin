@@ -64,3 +64,26 @@ func TestDial(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// wrapped is a Storage that Instrument returned.
+type wrapped struct{ storage.Storage }
+
+func TestDialInstrument(t *testing.T) {
+	const name = "dummy-instrument"
+	if err := storage.Register(name, storagetest.DummyStorage); err != nil && !errors.Is(errors.Exist, err) {
+		t.Fatal(err)
+	}
+	var got string
+	storage.Instrument = func(backend string, s storage.Storage) storage.Storage {
+		got = backend
+		return wrapped{s}
+	}
+	defer func() { storage.Instrument = nil }()
+	s, err := storage.Dial(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := s.(wrapped); !ok || got != name {
+		t.Errorf("Dial returned %T after Instrument(%q); want the wrapper, for %q", s, got, name)
+	}
+}

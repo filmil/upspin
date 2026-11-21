@@ -240,6 +240,12 @@ func (p *Perm) Update() error {
 	return p.updateUsers(entry) // Calls onUpdate.
 }
 
+// WritersObserver is called, if set, whenever a Perm loads its Writers group
+// file or finds it missing: with the file's name, and the number of writers,
+// or -1 when the file is missing and every user may write. Servers that
+// export metrics set it (serverutil/metrics).
+var WritersObserver func(group upspin.PathName, writers int)
+
 // updateUsers reads the writers Group file entry and updates the user set.
 func (p *Perm) updateUsers(entry *upspin.DirEntry) error {
 	users, err := p.allowedWriters(entry)
@@ -254,6 +260,9 @@ func (p *Perm) updateUsers(entry *upspin.DirEntry) error {
 		p.writers[u] = true
 	}
 	p.mu.Unlock()
+	if obs := WritersObserver; obs != nil {
+		obs(p.targetFile, len(users))
+	}
 	p.onUpdate()
 	return nil
 }
@@ -263,6 +272,9 @@ func (p *Perm) deleteUsers() {
 	p.mu.Lock()
 	p.writers = nil
 	p.mu.Unlock()
+	if obs := WritersObserver; obs != nil {
+		obs(p.targetFile, -1)
+	}
 	p.onUpdate()
 }
 

@@ -11,7 +11,8 @@
 // cluster-internal address only. The public listener (cloud/https) refuses
 // every /debug/ path.
 //
-// Every server gets these metrics:
+// Every server gets these metrics (servers.go lists those of particular
+// servers):
 //
 //	upspin_rpc_requests_total{service, method, result}
 //	upspin_rpc_request_duration_seconds{service, method} (not for streams)
@@ -89,6 +90,7 @@ func start() {
 		buildInfo.WithLabelValues(version.GitSHA, version.Release).Set(1)
 		rpc.RequestObserver = observe
 		https.OnListening = func() { listening.Store(true) }
+		startServers()
 	})
 }
 

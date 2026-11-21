@@ -694,17 +694,30 @@ func TestRestoreRootFromBackup(t *testing.T) {
 	store, fac, name, root, old, _ := restoreFixture(t)
 	old.Close()
 
+	// The observers see the restore and the next backup.
+	var restores []string
+	saves := make(chan error, 1)
+	RootRestoreObserver = func(r string) { restores = append(restores, r) }
+	RootSaveObserver = func(err error) { saves <- err }
+	defer func() { RootRestoreObserver, RootSaveObserver = nil, nil }()
+
 	dir := t.TempDir()
 	user, err := Open(name, dir, fac, store)
 	if err != nil {
 		t.Fatal(err)
 	}
 	wantRoot(t, user, root)
+	if len(restores) != 1 || restores[0] != "restored" {
+		t.Errorf("RootRestoreObserver saw %q, want [restored]", restores)
+	}
 	next := restoreTestRoot(name, 43)
 	if err := user.SaveRoot(&next); err != nil {
 		t.Fatalf("SaveRoot after a restore: %v", err)
 	}
 	<-store.onPut
+	if err := <-saves; err != nil {
+		t.Errorf("RootSaveObserver saw %v, want nil", err)
+	}
 	user.Close()
 
 	// Without a storage backend, the root must come from the local file.

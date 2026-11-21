@@ -44,7 +44,7 @@ func listen(t *testing.T) string {
 	t.Cleanup(func() {
 		srv.Close()
 		mu.Lock()
-		checks = map[string]func() error{}
+		checks = map[string]func() error{"writers": checkWriters}
 		mu.Unlock()
 		listening.Store(false)
 	})
