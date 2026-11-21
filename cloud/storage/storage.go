@@ -120,8 +120,9 @@ func Dial(name string, opts ...DialOpts) (Storage, error) {
 		}
 	}
 	s, err := fn(dOpts)
-	if err != nil || Instrument == nil {
+	instrument := Instrument
+	if err != nil || instrument == nil {
 		return s, err
 	}
-	return Instrument(name, s), nil
+	return instrument(name, s), nil
 }

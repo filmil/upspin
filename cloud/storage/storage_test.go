@@ -86,4 +86,16 @@ func TestDialInstrument(t *testing.T) {
 	if _, ok := s.(wrapped); !ok || got != name {
 		t.Errorf("Dial returned %T after Instrument(%q); want the wrapper, for %q", s, got, name)
 	}
+
+	// A backend that fails to start is not instrumented.
+	const failing = "failing-instrument"
+	if err := storage.Register(failing, func(*storage.Opts) (storage.Storage, error) {
+		return nil, errors.Str("no backend")
+	}); err != nil && !errors.Is(errors.Exist, err) {
+		t.Fatal(err)
+	}
+	got = ""
+	if _, err := storage.Dial(failing); err == nil || got != "" {
+		t.Errorf("Dial of a failing backend = %v, Instrument called for %q; want an error and no call", err, got)
+	}
 }

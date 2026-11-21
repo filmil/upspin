@@ -41,10 +41,16 @@ func listen(t *testing.T) string {
 		t.Fatal(err)
 	}
 	srv := serve(ln)
+	mu.Lock()
+	saved := make(map[string]func() error, len(checks))
+	for n, c := range checks {
+		saved[n] = c
+	}
+	mu.Unlock()
 	t.Cleanup(func() {
 		srv.Close()
 		mu.Lock()
-		checks = map[string]func() error{"writers": checkWriters}
+		checks = saved
 		mu.Unlock()
 		listening.Store(false)
 	})

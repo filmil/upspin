@@ -241,9 +241,10 @@ func (p *Perm) Update() error {
 }
 
 // WritersObserver is called, if set, whenever a Perm loads its Writers group
-// file or finds it missing: with the file's name, and the number of writers,
-// or -1 when the file is missing and every user may write. Servers that
-// export metrics set it (serverutil/metrics).
+// file or finds it missing: with the file's name, and the number of distinct
+// writers, or -1 when the file is missing and every user may write. It is
+// called with the Perm's lock held, so it must not call back into the Perm.
+// Servers that export metrics set it (serverutil/metrics).
 var WritersObserver func(group upspin.PathName, writers int)
 
 // updateUsers reads the writers Group file entry and updates the user set.
@@ -259,10 +260,12 @@ func (p *Perm) updateUsers(entry *upspin.DirEntry) error {
 	for _, u := range users {
 		p.writers[u] = true
 	}
-	p.mu.Unlock()
+	// Under the lock, so that observations keep the order of the
+	// changes.
 	if obs := WritersObserver; obs != nil {
-		obs(p.targetFile, len(users))
+		obs(p.targetFile, len(p.writers))
 	}
+	p.mu.Unlock()
 	p.onUpdate()
 	return nil
 }
@@ -271,10 +274,10 @@ func (p *Perm) updateUsers(entry *upspin.DirEntry) error {
 func (p *Perm) deleteUsers() {
 	p.mu.Lock()
 	p.writers = nil
-	p.mu.Unlock()
 	if obs := WritersObserver; obs != nil {
 		obs(p.targetFile, -1)
 	}
+	p.mu.Unlock()
 	p.onUpdate()
 }
 

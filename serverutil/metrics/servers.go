@@ -56,10 +56,12 @@ var (
 		Help: "Backups of users' roots to the storage backend, by result.",
 	}, []string{"result"})
 
-	rootBackupLastSuccess = prometheus.NewGauge(prometheus.GaugeOpts{
+	// A vector without labels, so that the series exists only after the
+	// first successful backup: a 0 would look like a very old backup.
+	rootBackupLastSuccess = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "upspin_dir_root_backup_last_success_timestamp_seconds",
-		Help: "Unix time of the last successful backup of a root to the storage backend.",
-	})
+		Help: "Unix time of the last successful backup of a root to the storage backend. Absent before the first one.",
+	}, nil)
 
 	rootRestores = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "upspin_dir_root_restores_total",
@@ -92,7 +94,7 @@ func observeRootSave(err error) {
 		return
 	}
 	rootBackups.WithLabelValues("ok").Inc()
-	rootBackupLastSuccess.SetToCurrentTime()
+	rootBackupLastSuccess.WithLabelValues().SetToCurrentTime()
 }
 
 var (
@@ -101,10 +103,10 @@ var (
 )
 
 func observeWriters(group upspin.PathName, n int) {
-	writersGauge.WithLabelValues(string(group)).Set(float64(n))
 	writersMu.Lock()
+	defer writersMu.Unlock()
 	writers[group] = n
-	writersMu.Unlock()
+	writersGauge.WithLabelValues(string(group)).Set(float64(n))
 }
 
 // checkWriters fails while any Writers group file this process watches is
@@ -162,7 +164,9 @@ func (m *measured) Download(ref string) ([]byte, error) {
 	start := time.Now()
 	b, err := m.s.Download(ref)
 	m.observe("download", start, err)
-	storageBytes.WithLabelValues(m.backend, "download").Add(float64(len(b)))
+	if err == nil {
+		storageBytes.WithLabelValues(m.backend, "download").Add(float64(len(b)))
+	}
 	return b, err
 }
 
