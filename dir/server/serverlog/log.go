@@ -196,16 +196,24 @@ func newRoot(rootFile string, fac upspin.Factotum, s storage.Storage) (*root, er
 	}
 	if created && len(backup) > 0 {
 		user := upspin.UserName(strings.TrimPrefix(base, rootFilePrefix))
+		result := "restored"
 		if err := checkRootBackup(backup, user); err != nil {
 			// The backup stays in storage for a later look.
 			log.Error.Printf("dir/server: not restoring %s from the storage backend: %v", base, err)
+			result = "skipped"
 		} else if err := overwriteAndSync(f, backup); err != nil {
 			// Leave no partial root behind: the next start retries.
 			f.Close()
 			os.Remove(rootFile)
+			if obs := RootRestoreObserver; obs != nil {
+				obs("failed")
+			}
 			return nil, errors.E(errors.IO, err)
 		} else {
 			log.Info.Printf("dir/server: restored %s from the storage backend", base)
+		}
+		if obs := RootRestoreObserver; obs != nil {
+			obs(result)
 		}
 	}
 	r := &root{file: f}
@@ -245,6 +253,16 @@ func hashRoot(base string, fac upspin.Factotum) (string, error) {
 	return fmt.Sprintf("%s.%x", base, suffix), nil
 }
 
+// RootSaveObserver is called, if set, after every attempt to back up a user's
+// root to the storage backend, with the error of the attempt. Servers that
+// export metrics set it (serverutil/metrics).
+var RootSaveObserver func(err error)
+
+// RootRestoreObserver is called, if set, when newRoot finds a backup of a
+// root it has to create: with "restored", "skipped" when the backup is not
+// the user's root directory, or "failed" when writing it failed.
+var RootRestoreObserver func(result string)
+
 func (r *root) saveLoop(s storage.Storage) {
 	defer close(r.saveDone)
 	for range r.saveRoot {
@@ -252,6 +270,9 @@ func (r *root) saveLoop(s storage.Storage) {
 		buf := r.root
 		r.mu.Unlock()
 		err := s.Put(r.ref, buf)
+		if obs := RootSaveObserver; obs != nil {
+			obs(err)
+		}
 		if err != nil {
 			log.Error.Printf("dir/server: could not save root to storage backend: %v", err)
 			// TODO(adg): do we want to retry on failure?

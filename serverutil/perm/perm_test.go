@@ -6,6 +6,8 @@ package perm
 
 import (
 	"fmt"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -126,9 +128,30 @@ func TestNoFileAllowsAll(t *testing.T) {
 		t.Fatal(r.Diag())
 	}
 
+	var mu sync.Mutex
+	seen := map[upspin.PathName]int{}
+	WritersObserver = func(g upspin.PathName, n int) {
+		mu.Lock()
+		seen[g] = n
+		mu.Unlock()
+	}
+	defer func() { WritersObserver = nil }()
+
 	perm, wait, done := newWithEnv(t, env)
 	defer done()
 	wait()
+
+	// The missing Writers file is reported as -1.
+	mu.Lock()
+	if len(seen) != 1 {
+		t.Errorf("WritersObserver saw %v, want one Writers group", seen)
+	}
+	for g, n := range seen {
+		if n != -1 || !strings.HasSuffix(string(g), "/Group/Writers") {
+			t.Errorf("WritersObserver saw %s = %d, want a Writers group = -1", g, n)
+		}
+	}
+	mu.Unlock()
 
 	// Everyone is allowed.
 	for _, user := range []upspin.UserName{

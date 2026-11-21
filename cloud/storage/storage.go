@@ -45,6 +45,12 @@ type Lister interface {
 	List(token string) (refs []upspin.ListRefsItem, nextToken string, err error)
 }
 
+// Instrument is called, if set, on every Storage that Dial returns, with the
+// backend name, and Dial returns what it returns. Servers that export
+// metrics set it (serverutil/metrics), before they dial. A wrapper must keep
+// the Lister interface when the Storage it wraps has it.
+var Instrument func(backend string, s Storage) Storage
+
 // StorageConstructor is a function that initializes and returns a Storage
 // implementation with the given options.
 type StorageConstructor func(*Opts) (Storage, error)
@@ -113,5 +119,9 @@ func Dial(name string, opts ...DialOpts) (Storage, error) {
 			}
 		}
 	}
-	return fn(dOpts)
+	s, err := fn(dOpts)
+	if err != nil || Instrument == nil {
+		return s, err
+	}
+	return Instrument(name, s), nil
 }
