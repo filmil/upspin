@@ -37,7 +37,7 @@ var mailConfigFile = flag.String("mail_config", "", "config file name for mail s
 // Main starts the keyserver. If setup is not nil it is called with the
 // instantiated KeyServer.
 func Main(setup func(upspin.KeyServer)) {
-	flags.Parse(flags.Server, "kind", "serverconfig")
+	flags.Parse(flags.Server, "kind", "serverconfig", "metrics_addr")
 
 	cfg, err := config.FromFile(flags.Config)
 	if err != nil {

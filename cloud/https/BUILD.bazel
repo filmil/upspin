@@ -11,6 +11,7 @@ go_library(
         "//flags",
         "//log",
         "//serverutil",
+        "//serverutil/metrics",
         "//shutdown",
         "@org_golang_x_crypto//acme/autocert",
     ],

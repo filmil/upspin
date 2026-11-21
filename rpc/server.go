@@ -137,6 +137,57 @@ func generateRandomToken() (string, error) {
 	return fmt.Sprintf("%X", buf), nil
 }
 
+// RequestObserver, if set, is called once for every RPC request that a
+// server in this process handles for a known method, with the service and
+// method names, the result (see Result), and how long the request took.
+// Servers that export metrics set it (serverutil/metrics); clients leave it
+// nil. It must be set before the server starts serving.
+var RequestObserver func(service, method, result string, d time.Duration)
+
+// Result names the outcome of an RPC request for RequestObserver: "ok",
+// "unauthenticated" when the session check failed, "bad_request" when the
+// request body could not be read, "stream" for a streaming call, which has
+// no single result, or the kind of the error the method returned, such as
+// "permission" or "not_exist".
+func Result(err error) string {
+	if err == nil {
+		return "ok"
+	}
+	e, ok := err.(*errors.Error)
+	if !ok {
+		return "other"
+	}
+	switch e.Kind {
+	case errors.Invalid:
+		return "invalid"
+	case errors.Permission:
+		return "permission"
+	case errors.IO:
+		return "io"
+	case errors.Exist:
+		return "exist"
+	case errors.NotExist:
+		return "not_exist"
+	case errors.IsDir:
+		return "is_dir"
+	case errors.NotDir:
+		return "not_dir"
+	case errors.NotEmpty:
+		return "not_empty"
+	case errors.Private:
+		return "private"
+	case errors.Internal:
+		return "internal"
+	case errors.CannotDecrypt:
+		return "cannot_decrypt"
+	case errors.Transient:
+		return "transient"
+	case errors.BrokenLink:
+		return "broken_link"
+	}
+	return "other"
+}
+
 // ServeHTTP exposes the configured Service as an HTTP API.
 func (s *serverImpl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	d := &s.service
@@ -151,8 +202,16 @@ func (s *serverImpl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	umethod := d.UnauthenticatedMethods[name]
 	stream := d.Streams[name]
 	if method == nil && umethod == nil && stream == nil {
+		// Unknown names are not observed, so that a client cannot
+		// make up label values.
 		http.NotFound(w, r)
 		return
+	}
+
+	result := "other"
+	if obs := RequestObserver; obs != nil {
+		start := time.Now()
+		defer func() { obs(d.Name, name, result, time.Since(start)) }()
 	}
 
 	var session Session
@@ -160,6 +219,7 @@ func (s *serverImpl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		var err error
 		session, err = s.SessionForRequest(w, r)
 		if err != nil {
+			result = "unauthenticated"
 			http.Error(w, err.Error(), http.StatusUnauthorized)
 			return
 		}
@@ -168,6 +228,7 @@ func (s *serverImpl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(r.Body)
 	r.Body.Close()
 	if err != nil {
+		result = "bad_request"
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -175,11 +236,14 @@ func (s *serverImpl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case method != nil:
 		resp, err := method(session, body)
+		result = Result(err)
 		sendResponse(w, resp, err)
 	case umethod != nil:
 		resp, err := umethod(body)
+		result = Result(err)
 		sendResponse(w, resp, err)
 	case stream != nil:
+		result = "stream"
 		serveStream(stream, session, w, body)
 	default:
 		panic("this should never happen")
