@@ -191,6 +191,9 @@ jobs:
             echo "$changed"
             git diff --stat
           fi
+          # What the workspace status command saw when the build stamped
+          # the binaries (tools/workspace_status.sh).
+          grep '^STABLE_GIT' bazel-out/stable-status.txt || true
       - name: Generate artifact attestation for compiled binaries
         id: attest_bin
         uses: actions/attest-build-provenance@v2
