@@ -155,7 +155,7 @@ func ListenAndServeFromFlags(ready chan<- struct{}) {
 	ListenAndServe(ready, OptionsFromFlags())
 }
 
-// OnListening, if set, is called once the main listener of ListenAndServe
+// OnListening is called, if set, once the main listener of ListenAndServe
 // is up. serverutil/metrics sets it, so that its /healthz reports the
 // server ready only then.
 var OnListening func()

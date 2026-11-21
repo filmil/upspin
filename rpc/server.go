@@ -138,7 +138,7 @@ func generateRandomToken() (string, error) {
 	return fmt.Sprintf("%X", buf), nil
 }
 
-// RequestObserver, if set, is called once for every RPC request that a
+// RequestObserver is called, if set, once for every RPC request that a
 // server in this process handles for a known method, with the service and
 // method names, the result, and how long the request took. The result is
 // "unauthenticated" when the session check failed, "bad_request" when the
