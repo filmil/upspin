@@ -1,4 +1,8 @@
-build --registry=https://raw.githubusercontent.com/filmil/bazel-registry/main --registry=https://bcr.bazel.build
+# Every command resolves modules from the same registries. As
+# "build --registry", bazel query and bazel mod resolved from the BCR alone
+# and rewrote MODULE.bazel.lock; the release job's query did, so its build
+# stamped "-dirty" (v46.3.0 to v46.5.1).
+common --registry=https://raw.githubusercontent.com/filmil/bazel-registry/main --registry=https://bcr.bazel.build
 # Release builds: --config=release stamps the commit and the release tag
 # into -version (version/BUILD.bazel). Other builds do not run the status
 # command and print "devel".
