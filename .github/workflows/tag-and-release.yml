@@ -165,6 +165,9 @@ jobs:
           # --config=release puts the commit and the release tag into
           # -version (version/BUILD.bazel); the checkout is the tag for that.
           bazel build --config=release --platforms=@rules_go//go/toolchain:${{ matrix.os }}_${{ matrix.arch }} $(echo $TARGETS)
+          # What the stamp saw (tools/workspace_status.sh), read right after
+          # the build that stamped, before another Bazel command rewrites it.
+          grep -h -E '^(STABLE_GIT_COMMIT|GIT_STATUS) ' bazel-out/stable-status.txt bazel-out/volatile-status.txt || echo "no Bazel status files to show"
       - name: "Package binaries"
         run: |
           mkdir -p release-binaries
@@ -191,9 +194,6 @@ jobs:
             echo "$changed"
             git diff --stat
           fi
-          # What the workspace status command saw when the build stamped
-          # the binaries (tools/workspace_status.sh).
-          grep '^STABLE_GIT' bazel-out/stable-status.txt || true
       - name: Generate artifact attestation for compiled binaries
         id: attest_bin
         uses: actions/attest-build-provenance@v2
