@@ -1,14 +1,24 @@
 name: Tag and Release
 
+# A release follows every push to main, and every release is published to
+# the Bazel Central Registry (publish-bcr below). The check job skips a run
+# with no commit since the last tag.
 on:
-  schedule:
-    - cron: '0 0 20 * *'
+  push:
+    branches: [main]
   workflow_dispatch:
     inputs:
       force:
         description: 'Release even if nothing changed since the last release'
         type: boolean
         default: false
+
+# One run at a time, so that two quick merges do not race to tag. A run
+# waits for the one before it; GitHub keeps only the newest waiting run,
+# which releases its own commit and so everything before it.
+concurrency:
+  group: tag-and-release
+  cancel-in-progress: false
 
 jobs:
   check:
