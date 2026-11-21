@@ -28,6 +28,12 @@ jobs:
           disk-cache: ${{ github.job }}
           repository-cache: true
 
+      # A stale MODULE.bazel.lock makes every build rewrite it, so a
+      # release build sees a dirty tree and stamps "-dirty" (v46.3.0 and
+      # v46.4.0 did). Fail here instead.
+      - name: Lockfile is up to date
+        run: bazel mod deps --lockfile_mode=error
+
       - name: Bazel Build
         run: bazel build //...
 
