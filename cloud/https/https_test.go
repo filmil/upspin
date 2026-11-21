@@ -110,12 +110,19 @@ func TestPublicHandlerRefusesDebug(t *testing.T) {
 		"/debug/vars":        http.StatusNotFound,
 		"/debug/pprof/":      http.StatusNotFound,
 		"/debug":             http.StatusNotFound,
+		"//debug/vars":       http.StatusNotFound,
+		"/./debug/vars":      http.StatusNotFound,
+		"/x/../debug/vars":   http.StatusNotFound,
 		"/api/Key/Lookup":    http.StatusTeapot,
 		"/":                  http.StatusTeapot,
 		"/debugging-is-fine": http.StatusTeapot,
 	} {
 		rec := httptest.NewRecorder()
-		h.ServeHTTP(rec, httptest.NewRequest("GET", path, nil))
+		// Set the path directly: as a request target, "//debug/vars"
+		// would parse as host "debug".
+		req := httptest.NewRequest("GET", "/", nil)
+		req.URL.Path = path
+		h.ServeHTTP(rec, req)
 		if rec.Code != want {
 			t.Errorf("%s: status %d, want %d", path, rec.Code, want)
 		}

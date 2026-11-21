@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -22,7 +23,6 @@ import (
 	"upspin.io/flags"
 	"upspin.io/log"
 	"upspin.io/serverutil"
-	"upspin.io/serverutil/metrics"
 	"upspin.io/shutdown"
 )
 
@@ -151,19 +151,24 @@ func OptionsFromFlags() *Options {
 
 // ListenAndServeFromFlags is the same as ListenAndServe, but it determines the
 // listen address and Options from command-line flags in the flags package.
-// It also starts the internal metrics listener if -metrics_addr is set
-// (serverutil/metrics).
 func ListenAndServeFromFlags(ready chan<- struct{}) {
-	metrics.ServeFromFlags()
 	ListenAndServe(ready, OptionsFromFlags())
 }
 
-// publicHandler serves h, except for /debug/ paths. Packages such as expvar
-// and net/http/pprof register those on http.DefaultServeMux when they are
-// imported; they belong on the internal metrics listener only.
+// OnListening, if set, is called once the main listener of ListenAndServe
+// is up. serverutil/metrics sets it, so that its /healthz reports the
+// server ready only then.
+var OnListening func()
+
+// publicHandler serves h, except for /debug/ paths, which it refuses on the
+// cleaned path, so that "//debug/vars" or "/x/../debug/vars" are refused as
+// well. Packages such as expvar register /debug/ handlers on
+// http.DefaultServeMux when they are imported; they belong on the internal
+// metrics listener only (serverutil/metrics).
 func publicHandler(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/debug" || strings.HasPrefix(r.URL.Path, "/debug/") {
+		p := path.Clean("/" + r.URL.Path)
+		if p == "/debug" || strings.HasPrefix(p, "/debug/") {
 			http.NotFound(w, r)
 			return
 		}
@@ -267,6 +272,9 @@ func ListenAndServe(ready chan<- struct{}, opt *Options) {
 		// Notify the calling packages that
 		// we're ready to accept requests.
 		close(ready)
+	}
+	if OnListening != nil {
+		OnListening()
 	}
 
 	// If we're serving HTTPS then wrap the listener with a TLS listener.

@@ -16,6 +16,7 @@ go_library(
         "//pack/eeintegrity",
         "//pack/plain",
         "//rpc/dirserver",
+        "//serverutil/metrics",
         "//serverutil/perm",
         "//transports",
         "//upspin",

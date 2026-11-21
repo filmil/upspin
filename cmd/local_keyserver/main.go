@@ -18,6 +18,7 @@ import (
 	"upspin.io/key/inprocess"
 	"upspin.io/log"
 	rpc "upspin.io/rpc/keyserver"
+	"upspin.io/serverutil/metrics"
 	"upspin.io/upspin"
 
 	_ "upspin.io/key/transports"
@@ -30,6 +31,7 @@ var (
 
 func main() {
 	flags.Parse(flags.Server, "metrics_addr")
+	metrics.ServeFromFlags()
 	if *jsonFile == "" {
 		log.Fatalf("must specify -json file")
 	}

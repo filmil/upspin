@@ -13,6 +13,7 @@ go_library(
         "//key/transports",
         "//log",
         "//rpc/keyserver",
+        "//serverutil/metrics",
         "//upspin",
     ],
 )

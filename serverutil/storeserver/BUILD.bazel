@@ -13,6 +13,7 @@ go_library(
         "//pack/eeintegrity",
         "//pack/plain",
         "//rpc/storeserver",
+        "//serverutil/metrics",
         "//serverutil/perm",
         "//store/inprocess",
         "//store/server",

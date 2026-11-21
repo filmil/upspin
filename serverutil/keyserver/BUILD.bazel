@@ -19,6 +19,7 @@ go_library(
         "//key/transports",
         "//log",
         "//rpc/keyserver",
+        "//serverutil/metrics",
         "//serverutil/signup",
         "//upspin",
         "@in_gopkg_yaml_v2//:yaml_v2",

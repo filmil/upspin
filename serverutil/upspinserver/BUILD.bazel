@@ -18,6 +18,7 @@ go_library(
         "//pack/plain",
         "//rpc/dirserver",
         "//rpc/storeserver",
+        "//serverutil/metrics",
         "//serverutil/perm",
         "//serverutil/web",
         "//store/server",
