@@ -3,4 +3,7 @@ build --registry=https://raw.githubusercontent.com/filmil/bazel-registry/main --
 # into -version (version/BUILD.bazel). Other builds do not run the status
 # command and print "devel".
 build:release --stamp
+# A release must not write to the tree it stamps: cross-compiling would
+# rewrite MODULE.bazel.lock and make the commit "-dirty".
+build:release --lockfile_mode=off
 build:release --workspace_status_command=tools/workspace_status.sh
