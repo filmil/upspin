@@ -7,6 +7,7 @@ package metrics
 import (
 	"fmt"
 	"net/http"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -62,6 +63,12 @@ func TestServerMetrics(t *testing.T) {
 	if _, err := s.Download("missing"); err == nil {
 		t.Fatal("Download of a missing ref: expected an error")
 	}
+	if _, err := s.LinkBase(); err == nil {
+		t.Fatal("LinkBase: expected ErrNotSupported")
+	}
+	if err := s.Delete("a"); err != nil {
+		t.Fatal(err)
+	}
 	l := storage.Instrument(backend+"l", &fakeLister{fakeStorage{data: map[string][]byte{}}})
 	ls, ok := l.(storage.Lister)
 	if !ok {
@@ -76,17 +83,26 @@ func TestServerMetrics(t *testing.T) {
 	serverlog.RootRestoreObserver("restored")
 
 	_, body := get(t, base, "/metrics")
+	for _, re := range []string{
+		`(?m)^upspin_dir_root_backup_last_success_timestamp_seconds [1-9]`,
+		`(?m)^upspin_dir_root_backups_total\{result="ok"\} [1-9]`,
+		`(?m)^upspin_dir_root_backups_total\{result="io"\} [1-9]`,
+		`(?m)^upspin_dir_root_restores_total\{result="restored"\} [1-9]`,
+	} {
+		if !regexp.MustCompile(re).MatchString(body) {
+			t.Errorf("/metrics does not match %q", re)
+		}
+	}
 	for _, want := range []string{
 		`upspin_storage_requests_total{backend="` + backend + `",op="put",result="ok"} 1`,
+		`upspin_storage_requests_total{backend="` + backend + `",op="delete",result="ok"} 1`,
+		`upspin_storage_requests_total{backend="` + backend + `",op="link_base",result="other"} 1`,
+		`upspin_storage_request_duration_seconds_count{backend="` + backend + `",op="download"} 2`,
 		`upspin_storage_requests_total{backend="` + backend + `",op="download",result="ok"} 1`,
 		`upspin_storage_requests_total{backend="` + backend + `",op="download",result="not_exist"} 1`,
 		`upspin_storage_requests_total{backend="` + backend + `l",op="list",result="ok"} 1`,
 		`upspin_storage_bytes_total{backend="` + backend + `",op="put"} 5`,
 		`upspin_storage_bytes_total{backend="` + backend + `",op="download"} 5`,
-		`upspin_dir_root_backups_total{result="ok"}`,
-		`upspin_dir_root_backups_total{result="io"}`,
-		`upspin_dir_root_backup_last_success_timestamp_seconds `,
-		`upspin_dir_root_restores_total{result="restored"}`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("/metrics does not contain %q", want)
@@ -113,14 +129,27 @@ func TestWritersHealth(t *testing.T) {
 		t.Errorf("/metrics does not contain %q", want)
 	}
 
+	// An empty Writers file lets no one write; that is healthy.
+	perm.WritersObserver(group, 0)
+	if code, _ := get(t, base, "/healthz"); code != http.StatusOK {
+		t.Errorf("/healthz with 0 writers = %d, want 200", code)
+	}
+
+	other := group + "2"
 	perm.WritersObserver(group, -1)
+	perm.WritersObserver(other, -1)
 	code, body := get(t, base, "/healthz")
-	if code != http.StatusServiceUnavailable || !strings.Contains(body, "writers: "+string(group)+" missing: every user may write") {
-		t.Errorf("/healthz with the Writers file missing = %d %q", code, body)
+	if want := "writers: " + string(group) + ", " + string(other) + " missing: every user may write"; code != http.StatusServiceUnavailable || !strings.Contains(body, want) {
+		t.Errorf("/healthz with two Writers files missing = %d %q, want 503 with %q", code, body, want)
+	}
+	_, body = get(t, base, "/metrics")
+	if want := `upspin_writers{group="` + string(group) + `"} -1`; !strings.Contains(body, want) {
+		t.Errorf("/metrics does not contain %q", want)
 	}
 
 	perm.WritersObserver(group, 2)
+	perm.WritersObserver(other, 1)
 	if code, _ := get(t, base, "/healthz"); code != http.StatusOK {
-		t.Errorf("/healthz after the Writers file is back = %d, want 200", code)
+		t.Errorf("/healthz after the Writers files are back = %d, want 200", code)
 	}
 }

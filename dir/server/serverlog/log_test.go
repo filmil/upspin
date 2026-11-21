@@ -694,12 +694,13 @@ func TestRestoreRootFromBackup(t *testing.T) {
 	store, fac, name, root, old, _ := restoreFixture(t)
 	old.Close()
 
-	// The observers see the restore and the next backup.
+	// The observers see the restore and the next backup. They are reset
+	// in a cleanup, which runs after the deferred Close below.
 	var restores []string
 	saves := make(chan error, 1)
 	RootRestoreObserver = func(r string) { restores = append(restores, r) }
 	RootSaveObserver = func(err error) { saves <- err }
-	defer func() { RootRestoreObserver, RootSaveObserver = nil, nil }()
+	t.Cleanup(func() { RootRestoreObserver, RootSaveObserver = nil, nil })
 
 	dir := t.TempDir()
 	user, err := Open(name, dir, fac, store)
@@ -793,12 +794,18 @@ func TestBadBackupIsIgnored(t *testing.T) {
 			bad := tc.backup(t, root)
 			putBackup(t, store, ref, bad)
 
+			var restores []string
+			RootRestoreObserver = func(r string) { restores = append(restores, r) }
+			t.Cleanup(func() { RootRestoreObserver = nil })
 			user, err := Open(name, t.TempDir(), fac, store)
 			if err != nil {
 				t.Fatal(err)
 			}
 			defer user.Close()
 			wantNoRoot(t, user)
+			if len(restores) != 1 || restores[0] != "skipped" {
+				t.Errorf("RootRestoreObserver saw %q, want [skipped]", restores)
+			}
 			if b, err := store.Download(ref); err != nil || !reflect.DeepEqual(b, bad) {
 				t.Errorf("backup after a skipped restore: %q, %v; want it unchanged", b, err)
 			}
