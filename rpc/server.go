@@ -8,6 +8,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/binary"
+	goerrors "errors"
 	"fmt"
 	"io"
 	"math/big"
@@ -139,22 +140,26 @@ func generateRandomToken() (string, error) {
 
 // RequestObserver, if set, is called once for every RPC request that a
 // server in this process handles for a known method, with the service and
-// method names, the result (see Result), and how long the request took.
+// method names, the result, and how long the request took. The result is
+// "unauthenticated" when the session check failed, "bad_request" when the
+// request body could not be read, "stream" for a streaming call, which is
+// observed when it starts, with no duration, or else Result of the
+// method's error. Unknown method names are not observed, so that a client
+// cannot make up label values.
+//
 // Servers that export metrics set it (serverutil/metrics); clients leave it
 // nil. It must be set before the server starts serving.
 var RequestObserver func(service, method, result string, d time.Duration)
 
-// Result names the outcome of an RPC request for RequestObserver: "ok",
-// "unauthenticated" when the session check failed, "bad_request" when the
-// request body could not be read, "stream" for a streaming call, which has
-// no single result, or the kind of the error the method returned, such as
-// "permission" or "not_exist".
+// Result names the outcome of a method call: "ok" for a nil error, the
+// kind of an upspin.io/errors error, such as "permission" or "not_exist",
+// also when it is wrapped, or "other".
 func Result(err error) string {
 	if err == nil {
 		return "ok"
 	}
-	e, ok := err.(*errors.Error)
-	if !ok {
+	var e *errors.Error
+	if !goerrors.As(err, &e) {
 		return "other"
 	}
 	switch e.Kind {
@@ -202,16 +207,19 @@ func (s *serverImpl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	umethod := d.UnauthenticatedMethods[name]
 	stream := d.Streams[name]
 	if method == nil && umethod == nil && stream == nil {
-		// Unknown names are not observed, so that a client cannot
-		// make up label values.
 		http.NotFound(w, r)
 		return
 	}
 
 	result := "other"
-	if obs := RequestObserver; obs != nil {
+	obs := RequestObserver
+	if obs != nil {
 		start := time.Now()
-		defer func() { obs(d.Name, name, result, time.Since(start)) }()
+		defer func() {
+			if result != "stream" { // Observed when it started.
+				obs(d.Name, name, result, time.Since(start))
+			}
+		}()
 	}
 
 	var session Session
@@ -244,6 +252,9 @@ func (s *serverImpl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		sendResponse(w, resp, err)
 	case stream != nil:
 		result = "stream"
+		if obs != nil {
+			obs(d.Name, name, result, 0)
+		}
 		serveStream(stream, session, w, body)
 	default:
 		panic("this should never happen")

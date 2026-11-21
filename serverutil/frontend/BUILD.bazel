@@ -17,6 +17,7 @@ go_library(
         "//log",
         "//pack/eeintegrity",
         "//path",
+        "//serverutil/metrics",
         "//serverutil/web",
         "//test/testutil",
         "//transports",

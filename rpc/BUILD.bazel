@@ -28,7 +28,10 @@ go_library(
 
 go_test(
     name = "rpc_test",
-    srcs = ["all_test.go"],
+    srcs = [
+        "all_test.go",
+        "observer_test.go",
+    ],
     data = [
         "//key/testdata",
         "//rpc/testdata:rpc_testdata",

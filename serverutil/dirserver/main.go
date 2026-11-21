@@ -17,6 +17,7 @@ import (
 	"upspin.io/flags"
 	"upspin.io/log"
 	"upspin.io/rpc/dirserver"
+	"upspin.io/serverutil/metrics"
 	"upspin.io/serverutil/perm"
 	"upspin.io/upspin"
 
@@ -35,6 +36,7 @@ var storeServerUser = flag.String("storeserveruser", "", "`user name` of the Sto
 
 func Main() (ready chan<- struct{}) {
 	flags.Parse(flags.Server, "kind", "serverconfig", "metrics_addr")
+	metrics.ServeFromFlags()
 
 	// Load configuration and keys for this server. It needs a real upspin username and keys.
 	cfg, err := config.FromFile(flags.Config)

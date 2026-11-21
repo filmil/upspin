@@ -27,6 +27,7 @@ import (
 	"upspin.io/errors"
 	"upspin.io/flags"
 	"upspin.io/log"
+	"upspin.io/serverutil/metrics"
 	"upspin.io/serverutil/web"
 	"upspin.io/upspin"
 
@@ -38,6 +39,7 @@ func Main() {
 	docPath := flag.String("docpath", defaultDocPath(), "location of folder containing documentation")
 	local := flag.Bool("local", false, "run local testing instance")
 	flags.Parse(flags.Server, "metrics_addr")
+	metrics.ServeFromFlags()
 
 	if *local {
 		// Hack to serve locally. If the flag has not been set explicitly (its default

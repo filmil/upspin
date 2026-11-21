@@ -6,9 +6,11 @@ go_library(
     importpath = "upspin.io/serverutil/metrics",
     visibility = ["//visibility:public"],
     deps = [
+        "//cloud/https",
         "//flags",
         "//log",
         "//rpc",
+        "//shutdown",
         "//version",
         "@com_github_prometheus_client_golang//prometheus",
         "@com_github_prometheus_client_golang//prometheus/promhttp",
@@ -20,5 +22,8 @@ go_test(
     size = "small",
     srcs = ["metrics_test.go"],
     embed = [":metrics"],
-    deps = ["//rpc"],
+    deps = [
+        "//cloud/https",
+        "//rpc",
+    ],
 )

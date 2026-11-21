@@ -28,6 +28,7 @@ import (
 	"upspin.io/log"
 	"upspin.io/rpc/dirserver"
 	"upspin.io/rpc/storeserver"
+	"upspin.io/serverutil/metrics"
 	"upspin.io/serverutil/perm"
 	"upspin.io/serverutil/web"
 	storeServer "upspin.io/store/server"
@@ -60,6 +61,7 @@ func defaultCfgPath() string {
 
 func Main() (ready chan struct{}) {
 	flags.Parse(flags.Server, "metrics_addr")
+	metrics.ServeFromFlags()
 
 	if git := version.GitSHA; git != "" {
 		log.Info.Printf("upspinserver built on %s at commit %s",

@@ -20,6 +20,7 @@ import (
 	"upspin.io/key/server"
 	"upspin.io/log"
 	"upspin.io/rpc/keyserver"
+	"upspin.io/serverutil/metrics"
 	"upspin.io/serverutil/signup"
 	"upspin.io/upspin"
 
@@ -38,6 +39,7 @@ var mailConfigFile = flag.String("mail_config", "", "config file name for mail s
 // instantiated KeyServer.
 func Main(setup func(upspin.KeyServer)) {
 	flags.Parse(flags.Server, "kind", "serverconfig", "metrics_addr")
+	metrics.ServeFromFlags()
 
 	cfg, err := config.FromFile(flags.Config)
 	if err != nil {
