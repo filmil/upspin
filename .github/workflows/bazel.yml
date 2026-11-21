@@ -28,14 +28,18 @@ jobs:
           disk-cache: ${{ github.job }}
           repository-cache: true
 
-      # A stale MODULE.bazel.lock makes every build rewrite it, so a
-      # release build sees a dirty tree and stamps "-dirty" (v46.3.0 and
-      # v46.4.0 did). Fail here instead.
-      - name: Lockfile is up to date
-        run: bazel mod deps --lockfile_mode=error
-
       - name: Bazel Build
         run: bazel build //...
+
+      # A build must not change tracked files. v46.3.0 and v46.4.0 were
+      # stamped "-dirty" because the release build changed one, most
+      # likely MODULE.bazel.lock on a fresh runner. Show what changed and
+      # fail, so that the fix (usually committing the lockfile this
+      # prints) comes with the pull request.
+      - name: The build changed no tracked file
+        run: |
+          git status --porcelain --untracked-files=no
+          git diff --exit-code
 
       - name: Bazel Test
         run: bazel test --test_output=errors //...
