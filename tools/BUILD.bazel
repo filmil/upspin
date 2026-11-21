@@ -1,0 +1,11 @@
+load("@rules_go//go:def.bzl", "go_test")
+
+# tools/workspace_status.sh is the workspace status command of
+# --config=release builds (.bazelrc); this test runs it in throwaway git
+# repositories.
+go_test(
+    name = "workspace_status_test",
+    size = "small",
+    srcs = ["workspace_status_test.go"],
+    data = ["workspace_status.sh"],
+)

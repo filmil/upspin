@@ -4,18 +4,23 @@
 # license that can be found in the LICENSE file.
 #
 # Bazel's workspace status command for --config=release builds (.bazelrc).
-# Its keys go into -version through version/BUILD.bazel:
+# Its stable keys go into -version through version/BUILD.bazel:
 #
-#   STABLE_GIT_COMMIT   the commit being built, with "-dirty" when the
-#                       working tree has uncommitted changes
+#   STABLE_GIT_COMMIT   the commit being built, with "-dirty" when git status
+#                       lists a changed tracked file or fails
 #   STABLE_BUILD_TIME   that commit's time, so that a rebuild is identical
 #   STABLE_RELEASE_TAG  the release tag (v<digits>...) at that commit, or
 #                       empty
-#   STABLE_GIT_STATUS   what makes the commit "-dirty": the changed tracked
-#                       files, or git's error; empty when clean
+#
+# and one volatile key, which is not stamped into anything, so that its
+# changes rebuild nothing:
+#
+#   GIT_STATUS          why the commit is "-dirty": the entries of
+#                       git status, or its error, joined by ";"; empty
+#                       when clean. The release job prints it.
 #
 # Outside a git checkout it prints the keys empty; version.Version() then
-# prints "devel".
+# prints "devel". tools/workspace_status_test.go tests it.
 
 commit=$(git rev-parse HEAD 2>/dev/null) || commit=""
 time=""
@@ -23,15 +28,19 @@ tag=""
 status=""
 if [ -n "$commit" ]; then
 	time=$(git show -s --format=%cI HEAD)
-	# The tracked files that differ from HEAD, as git status (which
-	# refreshes the index) sees them, or git's error if it fails.
-	status=$(git status --porcelain --untracked-files=no 2>&1) || status="git status failed: $status"
+	# --no-optional-locks: do not take .git/index.lock to save the
+	# refreshed index, which would race with other git commands. Only
+	# stdout decides; a warning on stderr does not make a tree dirty.
+	if ! status=$(git --no-optional-locks status --porcelain --untracked-files=no 2>/dev/null); then
+		err=$(git --no-optional-locks status --porcelain --untracked-files=no 2>&1 >/dev/null)
+		status="git status failed: $err"
+	fi
 	[ -n "$status" ] && commit="$commit-dirty"
 	tag=$(git describe --tags --exact-match --match 'v[0-9]*' HEAD 2>/dev/null) || tag=""
 fi
-echo "STABLE_GIT_COMMIT $commit"
-echo "STABLE_BUILD_TIME $time"
-echo "STABLE_RELEASE_TAG $tag"
-# Why the commit is "-dirty", for the release job to print: one line, with
-# the entries of git status separated by "; ".
-echo "STABLE_GIT_STATUS $(printf '%s' "$status" | tr '\n' ';' | sed 's/;/; /g')"
+# printf, not echo: git status escapes unusual file names with
+# backslashes, which echo in some shells would interpret.
+printf 'STABLE_GIT_COMMIT %s\n' "$commit"
+printf 'STABLE_BUILD_TIME %s\n' "$time"
+printf 'STABLE_RELEASE_TAG %s\n' "$tag"
+printf 'GIT_STATUS %s\n' "$(printf '%s\n' "$status" | paste -sd ';' -)"
