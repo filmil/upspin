@@ -34,7 +34,7 @@ import (
 var storeServerUser = flag.String("storeserveruser", "", "`user name` of the StoreServer")
 
 func Main() (ready chan<- struct{}) {
-	flags.Parse(flags.Server, "kind", "serverconfig")
+	flags.Parse(flags.Server, "kind", "serverconfig", "metrics_addr")
 
 	// Load configuration and keys for this server. It needs a real upspin username and keys.
 	cfg, err := config.FromFile(flags.Config)

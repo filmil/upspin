@@ -7,6 +7,8 @@ package https
 import (
 	"crypto/tls"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 )
@@ -96,5 +98,26 @@ func TestKeyExchange(t *testing.T) {
 				t.Errorf("version = %x, want %x", cs.Version, want)
 			}
 		})
+	}
+}
+
+func TestPublicHandlerRefusesDebug(t *testing.T) {
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusTeapot)
+	})
+	h := publicHandler(inner)
+	for path, want := range map[string]int{
+		"/debug/vars":        http.StatusNotFound,
+		"/debug/pprof/":      http.StatusNotFound,
+		"/debug":             http.StatusNotFound,
+		"/api/Key/Lookup":    http.StatusTeapot,
+		"/":                  http.StatusTeapot,
+		"/debugging-is-fine": http.StatusTeapot,
+	} {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest("GET", path, nil))
+		if rec.Code != want {
+			t.Errorf("%s: status %d, want %d", path, rec.Code, want)
+		}
 	}
 }

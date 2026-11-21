@@ -59,7 +59,7 @@ func defaultCfgPath() string {
 }
 
 func Main() (ready chan struct{}) {
-	flags.Parse(flags.Server)
+	flags.Parse(flags.Server, "metrics_addr")
 
 	if git := version.GitSHA; git != "" {
 		log.Info.Printf("upspinserver built on %s at commit %s",

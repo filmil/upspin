@@ -29,7 +29,7 @@ var (
 )
 
 func main() {
-	flags.Parse(flags.Server)
+	flags.Parse(flags.Server, "metrics_addr")
 	if *jsonFile == "" {
 		log.Fatalf("must specify -json file")
 	}

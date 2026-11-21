@@ -1,0 +1,24 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "metrics",
+    srcs = ["metrics.go"],
+    importpath = "upspin.io/serverutil/metrics",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//flags",
+        "//log",
+        "//rpc",
+        "//version",
+        "@com_github_prometheus_client_golang//prometheus",
+        "@com_github_prometheus_client_golang//prometheus/promhttp",
+    ],
+)
+
+go_test(
+    name = "metrics_test",
+    size = "small",
+    srcs = ["metrics_test.go"],
+    embed = [":metrics"],
+    deps = ["//rpc"],
+)

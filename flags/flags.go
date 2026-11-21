@@ -106,6 +106,13 @@ var (
 	// Log ("log") sets the level of logging (implements flag.Value).
 	Log logFlag
 
+	// MetricsAddr ("metrics_addr") is the network address of a server's
+	// internal listener for /metrics, /healthz and /debug/
+	// (serverutil/metrics). Empty means no such listener. It must not be
+	// reachable from outside: serve it on a loopback, Tailscale or
+	// cluster-internal address only.
+	MetricsAddr = ""
+
 	// NetAddr ("addr") is the publicly accessible network address of this
 	// server.
 	NetAddr = ""
@@ -189,8 +196,9 @@ var flags = map[string]*flagVar{
 			return ""
 		},
 	},
-	"kind":      strVar(&ServerKind, "kind", ServerKind, "server implementation `kind` (inprocess, server, local[keyserver only])"),
-	"letscache": strVar(&LetsEncryptCache, "letscache", defaultLetsEncryptCache, "Let's Encrypt cache `directory`"),
+	"kind":         strVar(&ServerKind, "kind", ServerKind, "server implementation `kind` (inprocess, server, local[keyserver only])"),
+	"letscache":    strVar(&LetsEncryptCache, "letscache", defaultLetsEncryptCache, "Let's Encrypt cache `directory`"),
+	"metrics_addr": strVar(&MetricsAddr, "metrics_addr", "", "internal `address` for /metrics, /healthz and /debug/ (empty: none); never expose it publicly"),
 	"log": &flagVar{
 		set: func(fs *flag.FlagSet) {
 			Log.Set("info")

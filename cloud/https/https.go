@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"golang.org/x/crypto/acme/autocert"
@@ -21,6 +22,7 @@ import (
 	"upspin.io/flags"
 	"upspin.io/log"
 	"upspin.io/serverutil"
+	"upspin.io/serverutil/metrics"
 	"upspin.io/shutdown"
 )
 
@@ -149,8 +151,24 @@ func OptionsFromFlags() *Options {
 
 // ListenAndServeFromFlags is the same as ListenAndServe, but it determines the
 // listen address and Options from command-line flags in the flags package.
+// It also starts the internal metrics listener if -metrics_addr is set
+// (serverutil/metrics).
 func ListenAndServeFromFlags(ready chan<- struct{}) {
+	metrics.ServeFromFlags()
 	ListenAndServe(ready, OptionsFromFlags())
+}
+
+// publicHandler serves h, except for /debug/ paths. Packages such as expvar
+// and net/http/pprof register those on http.DefaultServeMux when they are
+// imported; they belong on the internal metrics listener only.
+func publicHandler(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/debug" || strings.HasPrefix(r.URL.Path, "/debug/") {
+			http.NotFound(w, r)
+			return
+		}
+		h.ServeHTTP(w, r)
+	})
 }
 
 // ListenAndServe serves the http.DefaultServeMux by HTTPS (and HTTP,
@@ -258,6 +276,7 @@ func ListenAndServe(ready chan<- struct{}, opt *Options) {
 
 	// Set up the main server.
 	server := &http.Server{
+		Handler:           publicHandler(http.DefaultServeMux),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		// WriteTimeout is set to 0 because it also pertains to

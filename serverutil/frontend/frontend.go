@@ -37,7 +37,7 @@ import (
 func Main() {
 	docPath := flag.String("docpath", defaultDocPath(), "location of folder containing documentation")
 	local := flag.Bool("local", false, "run local testing instance")
-	flags.Parse(flags.Server)
+	flags.Parse(flags.Server, "metrics_addr")
 
 	if *local {
 		// Hack to serve locally. If the flag has not been set explicitly (its default
