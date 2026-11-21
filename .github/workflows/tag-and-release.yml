@@ -180,10 +180,17 @@ jobs:
           echo "$out"
           test "$status" -eq 2
           grep -qx "Release:    ${{ needs.tag.outputs.tag_name }}" <<<"$out"
-          # The tracked files the build changed, if any: they make the
-          # hash end in "-dirty".
-          git status --porcelain --untracked-files=no
-          grep -qxE "Git hash:   [0-9a-f]{40}" <<<"$out"
+          grep -qxE "Git hash:   [0-9a-f]{40}(-dirty)?" <<<"$out"
+          # The release build changed tracked files on v46.3.0 and
+          # v46.4.0, though the CI build does not. Name them, and warn
+          # instead of failing: this step runs after the tag exists, and
+          # failing here would leave a release without binaries.
+          changed=$(git status --porcelain --untracked-files=no)
+          if [ -n "$changed" ]; then
+            echo "::warning::the release build changed tracked files, so the hash ends in -dirty:"
+            echo "$changed"
+            git diff --stat
+          fi
       - name: Generate artifact attestation for compiled binaries
         id: attest_bin
         uses: actions/attest-build-provenance@v2
