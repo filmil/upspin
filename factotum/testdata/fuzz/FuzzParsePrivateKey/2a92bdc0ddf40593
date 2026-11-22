@@ -1,0 +1,3 @@
+go test fuzz v1
+[]byte("0")
+[]byte("\x86\u2005\u2005\u2006")

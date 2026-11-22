@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("{\"d\":\"1\",\"kem_\x80\xff\xff\xff\":\"QQ==\"}")

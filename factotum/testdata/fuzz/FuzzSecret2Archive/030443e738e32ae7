@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("# EE\np256\n0\n0\n\uebaf\ue430\uebb0\uebaf\uebaf\uebaf\ue430\ue430")

@@ -1,0 +1,3 @@
+go test fuzz v1
+[]byte("\u2005ِ")
+[]byte("\u2005\xd9\xd9 ")
