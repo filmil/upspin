@@ -14,19 +14,22 @@ on:
         type: boolean
         default: false
 
-# One run at a time per ref, so that two quick merges do not race to tag.
-# A run waits for the one before it. GitHub keeps only the newest waiting
-# run of a group and cancels older waiting ones; the newest releases its own
-# commit, and so everything before it. If that run fails, the commits of the
-# cancelled runs wait for the next push or a manual run. A manual run on
-# another branch has a group of its own, so it cannot evict a main release.
+# One run at a time for the whole repository: tags, GitHub releases and BCR
+# versions are global, so no two runs may tag at once. A run waits for the
+# one before it. GitHub keeps only the newest waiting run and cancels older
+# waiting ones; the newest releases its own commit, and so everything
+# before it. If that run fails, the commits of the cancelled runs wait for
+# the next push or a manual run.
 concurrency:
-  group: tag-and-release-${{ github.ref }}
+  group: tag-and-release
   cancel-in-progress: false
 
 jobs:
   check:
     name: Check for changes since the last release
+    # Releases come from main only; a manual run on another branch does
+    # nothing, so unmerged code is never tagged or published.
+    if: ${{ github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     outputs:
       should_release: ${{ steps.check.outputs.should_release }}
