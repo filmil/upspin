@@ -14,17 +14,31 @@ on:
         type: boolean
         default: false
 
-# One run at a time for the whole repository: tags, GitHub releases and BCR
+# One run on main at a time for the whole repository: tags, releases and BCR
 # versions are global, so no two runs may tag at once. A run waits for the
 # one before it. GitHub keeps only the newest waiting run and cancels older
 # waiting ones; the newest releases its own commit, and so everything
 # before it. If that run fails, the commits of the cancelled runs wait for
 # the next push or a manual run.
+# A run on any other ref gets a group of its own: concurrency is decided
+# before any job's "if", so a run there in the shared group would cancel a
+# waiting main release and then release nothing.
 concurrency:
-  group: tag-and-release
+  group: ${{ github.ref == 'refs/heads/main' && 'tag-and-release' || format('tag-and-release-not-main-{0}', github.run_id) }}
   cancel-in-progress: false
 
 jobs:
+  # A manual run on another branch fails here, visibly, instead of
+  # succeeding with nothing done.
+  not-main:
+    if: ${{ github.ref != 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Releases come from main only
+        run: |
+          echo "::error::Tag and Release runs on main only; this run is on ${GITHUB_REF}."
+          exit 1
+
   check:
     name: Check for changes since the last release
     # Releases come from main only; a manual run on another branch does
