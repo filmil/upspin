@@ -75,28 +75,58 @@ jobs:
         run: |
           set -euo pipefail
           EXPECTED="${TAG_NAME#v}"
-          # --config=release stamps the commit and the release tag into the
-          # binaries (version/BUILD.bazel, tools/workspace_status.sh), which
-          # report them in -version and in upspin_build_info. Without it
-          # they report empty values (issue 137).
-          bazel build --config=release --embed_label="$TAG_NAME" //containers:remote_tags
+          # remote_tags carries the version as the image tag.
+          bazel build --embed_label="$TAG_NAME" //containers:remote_tags
           ACTUAL="$(cat bazel-bin/containers/remote_tags.txt)"
           if [ "$ACTUAL" != "$EXPECTED" ]; then
             echo "::error::Source at '$TAG_NAME' yields tag(s) '$ACTUAL', expected '$EXPECTED'. That tag predates versioned container publishing; nothing was pushed."
             exit 1
           fi
-          # The stamp must name this tag and a clean commit, as the release
-          # binaries' check does; read right after the build that stamped.
+          # The binaries carry it too: --config=release stamps the commit and
+          # the release tag (tools/workspace_status.sh) into upspin.io/version,
+          # which they report in -version and in upspin_build_info (issue 137).
+          # Build what the push step pushes, with the same flags, and check
+          # that every binary in the images names this tag and this commit.
+          bazel build --config=release --embed_label="$TAG_NAME" //containers:push //containers:binaries_tar
+          HEAD_COMMIT="$(git rev-parse HEAD)"
           STAMP_TAG="$(sed -n 's/^STABLE_RELEASE_TAG //p' bazel-out/stable-status.txt)"
           STAMP_COMMIT="$(sed -n 's/^STABLE_GIT_COMMIT //p' bazel-out/stable-status.txt)"
-          echo "stamp: release=${STAMP_TAG} commit=${STAMP_COMMIT}"
-          if [ "$STAMP_TAG" != "$TAG_NAME" ] || [ -z "$STAMP_COMMIT" ] || [ "${STAMP_COMMIT%-dirty}" != "$STAMP_COMMIT" ]; then
-            echo "::error::The stamp names release '${STAMP_TAG}' and commit '${STAMP_COMMIT}', expected '$TAG_NAME' and a clean commit; nothing was pushed."
+          echo "stamp: release=${STAMP_TAG} commit=${STAMP_COMMIT}; checkout: ${HEAD_COMMIT}"
+          if [ "$STAMP_TAG" != "$TAG_NAME" ] || [ "$STAMP_COMMIT" != "$HEAD_COMMIT" ]; then
+            echo "::error::The stamp names release '${STAMP_TAG}' and commit '${STAMP_COMMIT}', expected '$TAG_NAME' and '$HEAD_COMMIT' (a clean checkout of the tag); nothing was pushed."
             exit 1
           fi
+          stamped=0
+          for t in //containers:binaries_tar; do
+            tarfile="$(bazel cquery --config=release --embed_label="$TAG_NAME" --output=files "$t" 2>/dev/null | sed -n 1p)"
+            for member in $(tar -tf "$tarfile" | grep -v '/$'); do
+              # To a file first: under pipefail, grep -q closing the pipe
+              # early would fail tar with SIGPIPE.
+              tar -xOf "$tarfile" "$member" > "$RUNNER_TEMP/stamped-binary"
+              # A binary that does not link upspin.io/version (upbox, the
+              # setupstorage tools) has no version to stamp.
+              if ! grep -a -q -F 'upspin.io/version.' "$RUNNER_TEMP/stamped-binary"; then
+                echo "$member: does not link upspin.io/version; skipped"
+                continue
+              fi
+              if ! grep -a -q -F "$HEAD_COMMIT" "$RUNNER_TEMP/stamped-binary" ||
+                 ! grep -a -q -F "$TAG_NAME" "$RUNNER_TEMP/stamped-binary"; then
+                echo "::error::$member in $t links upspin.io/version but does not carry the stamp ($TAG_NAME, $HEAD_COMMIT); nothing was pushed."
+                exit 1
+              fi
+              stamped=$((stamped + 1))
+            done
+          done
+          if [ "$stamped" -eq 0 ]; then
+            echo "::error::No binary in the images carries the stamp; nothing was pushed."
+            exit 1
+          fi
+          echo "$stamped binaries carry $TAG_NAME and $HEAD_COMMIT"
       # --embed_label drives //containers:remote_tags, which emits the bare
       # semver. It must precede the target: it is a bazel flag, not an argument
       # to the push script.
+      # --config=release, as in the verify step, so that the push uses the
+      # stamped binaries checked there.
       - name: "Push ${{ inputs.tag_name }}"
         env:
           TAG_NAME: ${{ inputs.tag_name }}
