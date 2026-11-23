@@ -94,17 +94,27 @@ jobs:
           echo "stamp: release=${STAMP_TAG} commit=${STAMP_COMMIT}; checkout: ${HEAD_COMMIT}"
           if [ "$STAMP_TAG" != "$TAG_NAME" ] || [ "$STAMP_COMMIT" != "$HEAD_COMMIT" ]; then
             echo "::error::The stamp names release '${STAMP_TAG}' and commit '${STAMP_COMMIT}', expected '$TAG_NAME' and '$HEAD_COMMIT' (a clean checkout of the tag); nothing was pushed."
+            # Why a commit is "-dirty": git status, as the script saw it.
+            grep -h '^GIT_STATUS ' bazel-out/volatile-status.txt || true
             exit 1
           fi
           stamped=0
           for t in //containers:binaries_tar; do
             tarfile="$(bazel cquery --config=release --embed_label="$TAG_NAME" --output=files "$t" 2>/dev/null | sed -n 1p)"
-            for member in $(tar -tf "$tarfile" | grep -v '/$'); do
+            if [ ! -f "$tarfile" ]; then
+              echo "::error::$t built no tar file ('$tarfile'); nothing was pushed."
+              exit 1
+            fi
+            # A listing that fails stops the step here (set -e), rather than
+            # leaving the loop below with nothing to check.
+            tar -tf "$tarfile" > "$RUNNER_TEMP/members"
+            while IFS= read -r member; do
+              case "$member" in */) continue ;; esac
               # To a file first: under pipefail, grep -q closing the pipe
               # early would fail tar with SIGPIPE.
               tar -xOf "$tarfile" "$member" > "$RUNNER_TEMP/stamped-binary"
-              # A binary that does not link upspin.io/version (upbox, the
-              # setupstorage tools) has no version to stamp.
+              # A binary that does not link upspin.io/version (upbox, upspin-setupstorage)
+              # has no version to stamp.
               if ! grep -a -q -F 'upspin.io/version.' "$RUNNER_TEMP/stamped-binary"; then
                 echo "$member: does not link upspin.io/version; skipped"
                 continue
@@ -115,7 +125,7 @@ jobs:
                 exit 1
               fi
               stamped=$((stamped + 1))
-            done
+            done < "$RUNNER_TEMP/members"
           done
           if [ "$stamped" -eq 0 ]; then
             echo "::error::No binary in the images carries the stamp; nothing was pushed."
