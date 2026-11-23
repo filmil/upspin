@@ -75,10 +75,23 @@ jobs:
         run: |
           set -euo pipefail
           EXPECTED="${TAG_NAME#v}"
-          bazel build --embed_label="$TAG_NAME" //containers:remote_tags
+          # --config=release stamps the commit and the release tag into the
+          # binaries (version/BUILD.bazel, tools/workspace_status.sh), which
+          # report them in -version and in upspin_build_info. Without it
+          # they report empty values (issue 137).
+          bazel build --config=release --embed_label="$TAG_NAME" //containers:remote_tags
           ACTUAL="$(cat bazel-bin/containers/remote_tags.txt)"
           if [ "$ACTUAL" != "$EXPECTED" ]; then
             echo "::error::Source at '$TAG_NAME' yields tag(s) '$ACTUAL', expected '$EXPECTED'. That tag predates versioned container publishing; nothing was pushed."
+            exit 1
+          fi
+          # The stamp must name this tag and a clean commit, as the release
+          # binaries' check does; read right after the build that stamped.
+          STAMP_TAG="$(sed -n 's/^STABLE_RELEASE_TAG //p' bazel-out/stable-status.txt)"
+          STAMP_COMMIT="$(sed -n 's/^STABLE_GIT_COMMIT //p' bazel-out/stable-status.txt)"
+          echo "stamp: release=${STAMP_TAG} commit=${STAMP_COMMIT}"
+          if [ "$STAMP_TAG" != "$TAG_NAME" ] || [ -z "$STAMP_COMMIT" ] || [ "${STAMP_COMMIT%-dirty}" != "$STAMP_COMMIT" ]; then
+            echo "::error::The stamp names release '${STAMP_TAG}' and commit '${STAMP_COMMIT}', expected '$TAG_NAME' and a clean commit; nothing was pushed."
             exit 1
           fi
       # --embed_label drives //containers:remote_tags, which emits the bare
@@ -89,7 +102,7 @@ jobs:
           TAG_NAME: ${{ inputs.tag_name }}
         run: |
           set -euo pipefail
-          bazel run --embed_label="$TAG_NAME" //containers:push
+          bazel run --config=release --embed_label="$TAG_NAME" //containers:push
       - name: Summary
         env:
           TAG_NAME: ${{ inputs.tag_name }}
