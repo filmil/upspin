@@ -1,7 +1,8 @@
 # Short fuzzing (60 s per target), moved out of the pull request checks: at
-# most once an hour, and only when main has commits the last run did not
-# fuzz. A manual run always fuzzes main. The long weekly run, which also
-# grows the corpus, is fuzz.yml.
+# most once an hour, and only when main has commits the fuzz has not run on.
+# A manual run always fuzzes main. The long weekly run, which also grows the
+# corpus, is fuzz.yml. fuzz.sh's own test stays in the pull request checks
+# (bazel.yml, fuzz_script), and bazel test runs every target's seed corpus.
 name: Hourly fuzz
 
 on:
@@ -18,38 +19,56 @@ permissions:
   contents: read
 
 jobs:
-  # Was anything merged since the last run? Compares main with the commit
-  # the latest completed run of this workflow tested. A run that failed on a
-  # commit is not repeated for it: its failure is already reported.
+  # Was anything merged since the last fuzz? Compares main with the commit
+  # that the fuzz job last ran on, in a run that finished: runs where it was
+  # skipped, cancelled or never started do not count. If that fuzz failed
+  # and main has not moved, this job fails too, so that the workflow stays
+  # red until a new commit is fuzzed, rather than turning green while the
+  # failure stands.
   check:
     runs-on: ubuntu-latest
     permissions:
       actions: read
     outputs:
       changed: ${{ steps.changes.outputs.changed }}
+      sha: ${{ steps.changes.outputs.sha }}
     steps:
-      - name: Look for commits the last run did not fuzz
+      - name: Look for commits the fuzz has not seen
         id: changes
         env:
           GH_TOKEN: ${{ github.token }}
           EVENT: ${{ github.event_name }}
-          HEAD_SHA: ${{ github.sha }}
           RUN_ID: ${{ github.run_id }}
         run: |
           set -euo pipefail
+          # Always main, also for a manual run started from another branch.
+          head="$(gh api "repos/${GITHUB_REPOSITORY}/commits/main" --jq .sha)"
+          echo "sha=$head" >> "$GITHUB_OUTPUT"
           if [ "$EVENT" = workflow_dispatch ]; then
-            echo "Manual run: fuzzing $HEAD_SHA."
+            echo "Manual run: fuzzing main at $head."
             echo "changed=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          last="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/fuzz-hourly.yml/runs?branch=main&status=completed&per_page=10" \
-            --jq "[.workflow_runs[] | select(.id != ${RUN_ID})][0].head_sha // \"\"")"
-          if [ "$last" = "$HEAD_SHA" ]; then
-            echo "main is still $HEAD_SHA, fuzzed by the last run; nothing to do."
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "main is $HEAD_SHA; the last run fuzzed ${last:-nothing yet}. Fuzzing."
+          # The newest finished run whose fuzz job ran: its commit and result.
+          last="" result=""
+          for id in $(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/fuzz-hourly.yml/runs?status=completed&per_page=30" \
+                --jq ".workflow_runs[] | select(.id != ${RUN_ID}) | .id"); do
+            result="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/$id/jobs" \
+              --jq '[.jobs[] | select(.name == "fuzz") | select(.conclusion == "success" or .conclusion == "failure") | .conclusion][0] // ""')"
+            if [ -n "$result" ]; then
+              last="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/$id" --jq .head_sha)"
+              break
+            fi
+          done
+          if [ "$last" != "$head" ]; then
+            echo "main is $head; the fuzz last ran on ${last:-nothing yet}. Fuzzing."
             echo "changed=true" >> "$GITHUB_OUTPUT"
+          elif [ "$result" = failure ]; then
+            echo "::error::The fuzz failed on $head, and main has not moved since."
+            exit 1
+          else
+            echo "main is still $head, fuzzed with success; nothing to do."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
           fi
 
   # Fuzz every parser for 60 seconds. Bazel does not drive the fuzz
@@ -59,9 +78,16 @@ jobs:
     needs: check
     if: ${{ needs.check.outputs.changed == 'true' }}
     runs-on: ubuntu-latest
+    # 60 s per target plus the build. A hang must not hold the queue for
+    # GitHub's default 6 hours.
+    timeout-minutes: 45
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          # The commit check looked at: main, even for a manual run
+          # started from another branch.
+          ref: ${{ needs.check.outputs.sha }}
 
       # setup-bazel keeps three caches, all keyed by content: Bazelisk
       # downloads, the repository cache (by MODULE files) and the Bazel disk
