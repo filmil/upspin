@@ -6,8 +6,11 @@ package storecache
 
 import (
 	"expvar"
+	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -27,13 +30,28 @@ const (
 
 	// Retry interval for endpoints that we failed to Put to.
 	retryInterval = 5 * time.Minute
+
+	// failedDirName is the directory, beside the writeback queue, where
+	// blocks the store rejected permanently are kept: as in the queue,
+	// failedDirName/<endpoint>/<prefix>/<reference>, each with a
+	// <reference>.error file saying when and why. They are not retried.
+	// To retry one, for example once a proxy's body limit is raised, move
+	// the block back into the queue directory (storewritebackqueue) at the
+	// same relative path, remove its .error file, and restart the
+	// cacheserver: it queues every block found there at startup.
+	failedDirName      = "storewritebackfailed"
+	failedReasonSuffix = ".error"
 )
+
+// writebackFailed counts the blocks the store rejected permanently.
+var writebackFailed = expvar.NewInt("storecache-writeback-failed")
 
 // request represents a request to writeback a block. Each corresponds
 // to a Put to the storecache.
 type request struct {
 	upspin.Location
 	err        error       // the result of the Put() to the StoreServer.
+	failed     bool        // err is permanent: the block was set aside.
 	flushChans []chan bool // each flusher waits for its chan to close.
 	len        int64       // inserted by writeback.
 }
@@ -185,7 +203,16 @@ func (wbq *writebackQueue) scheduler() {
 		case r := <-wbq.done:
 			// A request has been completed.
 			epq := wbq.byEndpoint[r.Endpoint]
-			if r.err != nil {
+			if r.failed {
+				// The store rejected the block for good, so the
+				// endpoint is alive: the block is not retried, and
+				// it does not hold up the rest of the queue (#139).
+				p.failure(r.err)
+				writebackFailed.Add(1)
+				log.Error.Printf("%s: %s@%s rejected by the store, not retried; kept in %s: %s",
+					op, r.Reference, r.Endpoint, failedDirName, r.err)
+				epq.state = live
+			} else if r.err != nil {
 				epq.queue = append(epq.queue, r)
 				if p.failure(r.err) {
 					// The error has been dealt with. Since it was
@@ -209,11 +236,11 @@ func (wbq *writebackQueue) scheduler() {
 			} else {
 				wbq.output.Add(r.len)
 				wbq.goodput.Add(r.len)
-			}
 
-			// Mark endpoint as live so we can queue more requests for it.
-			epq.state = live
-			p.success()
+				// Mark endpoint as live so we can queue more requests for it.
+				epq.state = live
+				p.success()
+			}
 
 			// Awaken everyone waiting for a flush of a particular block.
 			for _, c := range r.flushChans {
@@ -311,6 +338,7 @@ func (wbq *writebackQueue) writer(me int) {
 		select {
 		case r := <-wbq.ready:
 			r.err = nil
+			r.failed = false
 
 			// Write it back.
 			r.err = wbq.writeback(r)
@@ -343,6 +371,10 @@ func (wbq *writebackQueue) writeback(r *request) error {
 	}
 	refdata, err := store.Put(data)
 	if err != nil {
+		if isPermanent(err) {
+			r.failed = true
+			wbq.setAside(r, relPath, absPath, err)
+		}
 		return err
 	}
 	if refdata.Reference != r.Reference {
@@ -518,4 +550,53 @@ func (p *parallelism) add() {
 func isTimeout(err error) bool {
 	estr := err.Error()
 	return strings.Contains(estr, "timeout") || strings.Contains(estr, "400")
+}
+
+// setAside moves a block the store rejected permanently out of the writeback
+// queue into failedDirName, with a file saying when and why, so that it is
+// neither retried nor lost. See failedDirName for how to retry it.
+func (wbq *writebackQueue) setAside(r *request, relPath, absPath string, reason error) {
+	const op errors.Op = "store/storecache.setAside"
+	failedPath := filepath.Join(filepath.Dir(wbq.sc.wbDir), failedDirName, relPath)
+	if err := os.MkdirAll(filepath.Dir(failedPath), 0700); err != nil {
+		log.Error.Printf("%s: %s", op, err)
+		return
+	}
+	if err := os.Rename(absPath, failedPath); err != nil {
+		log.Error.Printf("%s: %s", op, err)
+		return
+	}
+	text := fmt.Sprintf("time: %s\nreference: %s\nendpoint: %s\nerror: %s\n",
+		time.Now().UTC().Format(time.RFC3339), r.Reference, r.Endpoint, reason)
+	if err := os.WriteFile(failedPath+failedReasonSuffix, []byte(text), 0600); err != nil {
+		log.Error.Printf("%s: %s", op, err)
+	}
+}
+
+// httpStatus finds an HTTP status at the start of an error's text or of one
+// of its parts, as the RPC client reports a response that is not 200 OK
+// ("413 Request Entity Too Large: <body>").
+var httpStatus = regexp.MustCompile(`(?:^|: )([1-5][0-9][0-9]) [A-Z]`)
+
+// isPermanent reports whether a Put that failed with err will fail the same
+// way however often it is retried: the store found the request invalid, or
+// answered with an HTTP client error. 408 (request timeout) and 429 (too many
+// requests) are retried, as are 400 (isTimeout treats it as a timeout, #144),
+// server errors and network errors.
+func isPermanent(err error) bool {
+	if errors.Is(errors.Invalid, err) {
+		return true
+	}
+	m := httpStatus.FindStringSubmatch(err.Error())
+	if m == nil {
+		return false
+	}
+	code, _ := strconv.Atoi(m[1])
+	switch {
+	case code < 400 || code > 499:
+		return false
+	case code == 400, code == 408, code == 429:
+		return false
+	}
+	return true
 }
