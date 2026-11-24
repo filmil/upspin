@@ -300,6 +300,19 @@ jobs:
         run: .github/scripts/compat.sh ${{ github.event.pull_request.base.sha }}
 
 
+  # The fuzz itself runs hourly after merges (fuzz-hourly.yml). This checks
+  # its wrapper script, quickly, on every pull request: fuzz.sh counts Go's
+  # own deadline error as a pass (golang/go#75804), so fuzz_test.sh checks
+  # that it still fails real failures. It stubs Bazel; it needs only bash.
+  fuzz_script:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Test fuzz.sh
+        run: .github/scripts/fuzz_test.sh
+
   # Line coverage of the crypto packages must not fall below the floors
   # in .github/scripts/coverage_gate.py. The floors only go up; the
   # target is 90 percent.
