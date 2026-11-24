@@ -136,9 +136,9 @@ func newWritebackQueue(sc *storeCache) *writebackQueue {
 		terminated:   make(chan bool),
 	}
 	wbq.goodput = serverutil.NewRateCounter(60, 5*time.Second)
-	expvar.Publish("storecache-goodput", wbq.goodput)
+	publishOnce("storecache-goodput", wbq.goodput)
 	wbq.output = serverutil.NewRateCounter(60, 5*time.Second)
-	expvar.Publish("storecache-output", wbq.output)
+	publishOnce("storecache-output", wbq.output)
 
 	// Start scheduler.
 	go wbq.scheduler()
@@ -149,6 +149,15 @@ func newWritebackQueue(sc *storeCache) *writebackQueue {
 	}
 
 	return wbq
+}
+
+// publishOnce publishes v under name unless that name is taken: expvar.Publish
+// panics on a second use of a name, and a process normally has one writeback
+// queue, whose counters are the ones published. A test can make more.
+func publishOnce(name string, v expvar.Var) {
+	if expvar.Get(name) == nil {
+		expvar.Publish(name, v)
+	}
 }
 
 // enqueueWritebackFile populates the writeback queue on startup.
