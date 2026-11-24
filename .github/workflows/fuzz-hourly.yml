@@ -1,0 +1,94 @@
+# Short fuzzing (60 s per target), moved out of the pull request checks: at
+# most once an hour, and only when main has commits the last run did not
+# fuzz. A manual run always fuzzes main. The long weekly run, which also
+# grows the corpus, is fuzz.yml.
+name: Hourly fuzz
+
+on:
+  schedule:
+    - cron: '23 * * * *' # hourly
+  workflow_dispatch:
+
+# One run at a time: a scheduled run waits for the one before it.
+concurrency:
+  group: fuzz-hourly
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  # Was anything merged since the last run? Compares main with the commit
+  # the latest completed run of this workflow tested. A run that failed on a
+  # commit is not repeated for it: its failure is already reported.
+  check:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+    outputs:
+      changed: ${{ steps.changes.outputs.changed }}
+    steps:
+      - name: Look for commits the last run did not fuzz
+        id: changes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          HEAD_SHA: ${{ github.sha }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = workflow_dispatch ]; then
+            echo "Manual run: fuzzing $HEAD_SHA."
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          last="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/fuzz-hourly.yml/runs?branch=main&status=completed&per_page=10" \
+            --jq "[.workflow_runs[] | select(.id != ${RUN_ID})][0].head_sha // \"\"")"
+          if [ "$last" = "$HEAD_SHA" ]; then
+            echo "main is still $HEAD_SHA, fuzzed by the last run; nothing to do."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "main is $HEAD_SHA; the last run fuzzed ${last:-nothing yet}. Fuzzing."
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  # Fuzz every parser for 60 seconds. Bazel does not drive the fuzz
+  # engine, so the script runs go test -fuzz through Bazel's Go toolchain.
+  # A failing input is written under testdata/fuzz and uploaded.
+  fuzz:
+    needs: check
+    if: ${{ needs.check.outputs.changed == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # setup-bazel keeps three caches, all keyed by content: Bazelisk
+      # downloads, the repository cache (by MODULE files) and the Bazel disk
+      # cache (by BUILD files), the last one under a per-job name so that
+      # jobs do not race to save the same key and each restores its own.
+      - name: Install Bazel
+        uses: bazel-contrib/setup-bazel@0.19.0
+        with:
+          bazelisk-cache: true
+          disk-cache: ${{ github.job }}
+          repository-cache: true
+
+      - name: Build the generated protobuf sources
+        run: bazel build --remote_download_outputs=all //upspin/proto:proto_go_proto //rpc/testdata:prototest_go_proto
+
+      # fuzz.sh counts Go's own deadline error as a pass (golang/go#75804);
+      # check first that it still fails real failures.
+      - name: Test fuzz.sh
+        run: .github/scripts/fuzz_test.sh
+
+      - name: Fuzz for 60 seconds per target
+        run: .github/scripts/fuzz.sh 60s
+
+      - name: Upload failing inputs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-failures
+          path: |
+            **/testdata/fuzz/**
