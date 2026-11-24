@@ -32,8 +32,9 @@ type flakyStore struct {
 
 type flakyState struct {
 	mu        sync.Mutex
-	limit     int // Puts of more bytes than this are rejected with a 413.
-	transient int // this many next Puts fail with a 503.
+	limit     int  // Puts of more bytes than this are rejected with a 413.
+	transient int  // this many next Puts fail with a transient error:
+	timeout   bool // a timeout if set, else a 503.
 }
 
 func (s *flakyStore) Dial(cfg upspin.Config, e upspin.Endpoint) (upspin.Service, error) {
@@ -51,7 +52,12 @@ func (s *flakyStore) Put(data []byte) (*upspin.Refdata, error) {
 	if transient {
 		s.st.transient--
 	}
+	timeout := s.st.timeout
 	s.st.mu.Unlock()
+	if transient && timeout {
+		return nil, errors.E(errors.Op("rpc.Invoke"), errors.IO,
+			errors.Str("dial tcp: i/o timeout"))
+	}
 	if transient {
 		return nil, errors.E(errors.Op("rpc.Invoke"), errors.IO,
 			errors.Errorf("503 Service Temporarily Unavailable: <html>nginx</html>"))
@@ -75,16 +81,16 @@ func init() {
 	}
 }
 
-func setStore(t *testing.T, limit, transient int) {
-	set := func(limit, transient int) {
+func setStore(t *testing.T, limit, transient int, timeout bool) {
+	set := func(limit, transient int, timeout bool) {
 		testState.mu.Lock()
-		testState.limit, testState.transient = limit, transient
+		testState.limit, testState.transient, testState.timeout = limit, transient, timeout
 		testState.mu.Unlock()
 	}
-	set(limit, transient)
+	set(limit, transient, timeout)
 	// Reset directly: a cleanup that called setStore would register
 	// another cleanup, and so on without end.
-	t.Cleanup(func() { set(0, 0) })
+	t.Cleanup(func() { set(0, 0, false) })
 }
 
 // unique makes block contents that no earlier run of a test has stored, so
@@ -144,7 +150,7 @@ func inStore(t *testing.T, cfg upspin.Config, e upspin.Endpoint, ref upspin.Refe
 // A block the store rejects permanently is set aside, and the blocks queued
 // behind it are still written back.
 func TestPermanentRejectionDoesNotStall(t *testing.T) {
-	setStore(t, limit, 0)
+	setStore(t, limit, 0, false)
 	c, dir, cfg, e := newTestCache(t)
 	failedBefore := writebackFailed.Value()
 
@@ -202,14 +208,24 @@ func TestPermanentRejectionDoesNotStall(t *testing.T) {
 
 // After transient failures, the queue retries until the store accepts the
 // blocks. Before the fix a failed retry scheduled no further one, and the
-// queue stopped for good.
+// queue stopped for good. A new endpoint gets one request at a time until
+// one succeeds, so the failures happen in order: the first request, then
+// the probe after retryInterval.
 func TestTransientFailuresAreRetried(t *testing.T) {
+	testRetried(t, false)
+}
+
+// The same with timeouts, which take another path in the scheduler: a timed
+// out probe used to leave its endpoint dead with no retry scheduled.
+func TestTimedOutProbeIsRetried(t *testing.T) {
+	testRetried(t, true)
+}
+
+func testRetried(t *testing.T, timeout bool) {
 	old := retryInterval
 	retryInterval = 20 * time.Millisecond
 	t.Cleanup(func() { retryInterval = old })
-	// The first Put fails, then the probe sent after retryInterval fails
-	// too, then the store recovers.
-	setStore(t, 0, 2)
+	setStore(t, 0, 2, timeout)
 	c, _, cfg, e := newTestCache(t)
 
 	var locs []upspin.Location
@@ -240,8 +256,14 @@ func TestIsPermanent(t *testing.T) {
 		{errors.E(errors.IO, errors.Errorf("413 Payload Too Large: x")), true},
 		{errors.E(errors.Op("store/remote.Put"), errors.E(errors.IO, errors.Errorf("413 Content Too Large: x"))), true},
 		{errors.Errorf("413 Request Entity Too Large"), true},
-		// As eph4's log showed it: a nested error, joined by ":\n\t".
-		{errors.E(errors.Op("store/remote.Put"), errors.E(errors.Op("rpc.Invoke"), errors.IO, errors.Errorf("413 Request Entity Too Large: <html>"))), true},
+		// As eph4's log showed it (#139): a nested error, joined by ":\n\t",
+		// whose inner kind is dropped because it equals the outer one.
+		{errors.E(errors.Op(`store/remote("upspin.hdlfactory.com:443").Put`), errors.IO,
+			errors.E(errors.Op("rpc.Invoke"), errors.IO, errors.Errorf("413 Request Entity Too Large: <html>"))), true},
+		{errors.Str("store/remote(\"upspin.hdlfactory.com:443\").Put: I/O error:\n\trpc.Invoke: 413 Request Entity Too Large: <html>"), true},
+		// Any reason phrase, or none.
+		{errors.E(errors.Op("rpc.Invoke"), errors.IO, errors.Errorf("413 : x")), true},
+		{errors.E(errors.Op("rpc.Invoke"), errors.IO, errors.Errorf("413 Too Big For Us: x")), true},
 		// The store found the block invalid.
 		{errors.E(errors.Invalid, errors.Str("bad block")), true},
 		// Retried: a proxy can return these for a while.
@@ -256,6 +278,8 @@ func TestIsPermanent(t *testing.T) {
 		// "413" inside a reference or a body is not the status.
 		{errors.E(errors.IO, errors.Str("DC413EB8: i/o timeout")), false},
 		{errors.E(errors.IO, errors.Errorf("502 Bad Gateway: upstream said 413 Request Entity Too Large")), false},
+		{errors.E(errors.Op("rpc.Invoke"), errors.IO, errors.Errorf("502 Bad Gateway: upstream: 413 Content Too Large")), false},
+		{nil, false},
 	} {
 		if got := isPermanent(tc.err); got != tc.want {
 			t.Errorf("isPermanent(%q) = %v, want %v", tc.err, got, tc.want)

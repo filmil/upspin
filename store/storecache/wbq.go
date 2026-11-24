@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"upspin.io/bind"
@@ -34,7 +35,9 @@ const (
 	// once a proxy's body limit is raised, move only the block file (not
 	// its .error file, which the queue would take for a block) back into
 	// the queue directory at the same relative path, then restart the
-	// cacheserver: it queues every file found there at startup.
+	// cacheserver: it queues every file found there at startup. Delete the
+	// .error file then. A flush of a set-aside block returns as if it had
+	// been written: the block is not in the store until it is retried.
 	failedDirName      = "storewritebackfailed"
 	failedReasonSuffix = ".error"
 )
@@ -151,10 +154,25 @@ func newWritebackQueue(sc *storeCache) *writebackQueue {
 	return wbq
 }
 
+// scheduleRetry makes the dead endpoint epq be tried again after
+// retryInterval, unless a retry is already scheduled.
+func (wbq *writebackQueue) scheduleRetry(epq *endpointQueue) {
+	if epq.retryPending {
+		return
+	}
+	epq.retryPending = true
+	time.AfterFunc(retryInterval, func() { wbq.retry <- epq })
+}
+
+// publishMu makes publishOnce's check and publish one step.
+var publishMu sync.Mutex
+
 // publishOnce publishes v under name unless that name is taken: expvar.Publish
 // panics on a second use of a name, and a process normally has one writeback
 // queue, whose counters are the ones published. A test can make more.
 func publishOnce(name string, v expvar.Var) {
+	publishMu.Lock()
+	defer publishMu.Unlock()
 	if expvar.Get(name) == nil {
 		expvar.Publish(name, v)
 	}
@@ -237,6 +255,12 @@ func (wbq *writebackQueue) scheduler() {
 					log.Error.Printf("%s: timeout: goodput %s, output %s",
 						op, wbq.goodput.String(),
 						wbq.output.String())
+					// A probe is sent with its endpoint marked dead,
+					// and only a retry brings it back: a timed-out
+					// probe needs one scheduled too.
+					if epq.state == dead {
+						wbq.scheduleRetry(epq)
+					}
 					break
 				} else {
 					log.Error.Printf("%s: writeback failed: %s", op, r.err)
@@ -249,10 +273,7 @@ func (wbq *writebackQueue) scheduler() {
 				// retryPending, a failed probe scheduled none, and the
 				// queue stopped for good (#139).
 				epq.state = dead
-				if !epq.retryPending {
-					epq.retryPending = true
-					time.AfterFunc(retryInterval, func() { wbq.retry <- epq })
-				}
+				wbq.scheduleRetry(epq)
 				break
 			} else {
 				wbq.output.Add(r.len)
@@ -605,11 +626,18 @@ func (wbq *writebackQueue) setAside(r *request, relPath, absPath string, reason 
 	return failedPath, nil
 }
 
-// tooLarge matches a 413 status as the RPC client reports a response that is
-// not 200 OK ("<status>: <body>"), at the start of the error's text or of one
-// of its parts, under each of the status's names (RFC 2616, 7231, 9110).
-// Parts are joined by ": ", or, for a nested Upspin error, by ":\n\t".
-var tooLarge = regexp.MustCompile(`(?:^|:\s+)413 (?:Request Entity Too Large|Payload Too Large|Content Too Large)\b`)
+// tooLarge matches a 413 status where the RPC client reports a response that
+// is not 200 OK: the status first, then ": " and the body. The status starts
+// the error's text, or follows the client's op ("rpc.Invoke: ") or the kind
+// ("I/O error:"), after a space or, in a nested Upspin error, a newline and a
+// tab. As eph4's log showed the proxy's 413 (#139):
+//
+//	store/remote("upspin.hdlfactory.com:443").Put: I/O error:
+//		rpc.Invoke: 413 Request Entity Too Large: <html>...
+//
+// A 413 inside a body does not count. The reason phrase is not needed: a
+// proxy may send another one, or none.
+var tooLarge = regexp.MustCompile(`(?:^|(?:I/O error|rpc\.Invoke(?:Unauthenticated)?):\s+)413(?:[ :]|$)`)
 
 // isPermanent reports whether a Put that failed with err would fail the same
 // way however often it is retried: the store found the block invalid, or the
@@ -617,5 +645,8 @@ var tooLarge = regexp.MustCompile(`(?:^|:\s+)413 (?:Request Entity Too Large|Pay
 // other error is retried, including other client errors, which a proxy can
 // return for a while during an outage or a deploy (401, 403, 404).
 func isPermanent(err error) bool {
+	if err == nil {
+		return false
+	}
 	return errors.Is(errors.Invalid, err) || tooLarge.MatchString(err.Error())
 }
