@@ -76,10 +76,15 @@ func init() {
 }
 
 func setStore(t *testing.T, limit, transient int) {
-	testState.mu.Lock()
-	testState.limit, testState.transient = limit, transient
-	testState.mu.Unlock()
-	t.Cleanup(func() { setStore(t, 0, 0) })
+	set := func(limit, transient int) {
+		testState.mu.Lock()
+		testState.limit, testState.transient = limit, transient
+		testState.mu.Unlock()
+	}
+	set(limit, transient)
+	// Reset directly: a cleanup that called setStore would register
+	// another cleanup, and so on without end.
+	t.Cleanup(func() { set(0, 0) })
 }
 
 // unique makes block contents that no earlier run of a test has stored, so
