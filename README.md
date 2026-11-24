@@ -4,6 +4,9 @@
 [![Tag and Release](https://github.com/filmil/upspin/actions/workflows/tag-and-release.yml/badge.svg)](https://github.com/filmil/upspin/actions/workflows/tag-and-release.yml)
 [![Publish to my Bazel registry](https://github.com/filmil/upspin/actions/workflows/publish.yml/badge.svg)](https://github.com/filmil/upspin/actions/workflows/publish.yml)
 [![Publish on Bazel Central Registry](https://github.com/filmil/upspin/actions/workflows/publish-bcr.yml/badge.svg)](https://github.com/filmil/upspin/actions/workflows/publish-bcr.yml)
+[![Publish multi-arch container](https://github.com/filmil/upspin/actions/workflows/publish-container.yml/badge.svg)](https://github.com/filmil/upspin/actions/workflows/publish-container.yml)
+[![Hourly fuzz](https://github.com/filmil/upspin/actions/workflows/fuzz-hourly.yml/badge.svg)](https://github.com/filmil/upspin/actions/workflows/fuzz-hourly.yml)
+[![Weekly fuzz](https://github.com/filmil/upspin/actions/workflows/fuzz.yml/badge.svg)](https://github.com/filmil/upspin/actions/workflows/fuzz.yml)
 
 **Feature improvements made in this fork are described in
 [README.filmil.md](README.filmil.md).**
@@ -73,8 +76,6 @@ Upspin is not an official Google product.
 ## Status
 
 Upspin has rough edges, and is not yet suitable for non-technical users.
-
-[![Build Status](https://travis-ci.org/upspin/upspin.svg?branch=master)](https://travis-ci.org/upspin/upspin)
 
 
 ## Contributing
