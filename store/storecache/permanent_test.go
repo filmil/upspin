@@ -240,6 +240,8 @@ func TestIsPermanent(t *testing.T) {
 		{errors.E(errors.IO, errors.Errorf("413 Payload Too Large: x")), true},
 		{errors.E(errors.Op("store/remote.Put"), errors.E(errors.IO, errors.Errorf("413 Content Too Large: x"))), true},
 		{errors.Errorf("413 Request Entity Too Large"), true},
+		// As eph4's log showed it: a nested error, joined by ":\n\t".
+		{errors.E(errors.Op("store/remote.Put"), errors.E(errors.Op("rpc.Invoke"), errors.IO, errors.Errorf("413 Request Entity Too Large: <html>"))), true},
 		// The store found the block invalid.
 		{errors.E(errors.Invalid, errors.Str("bad block")), true},
 		// Retried: a proxy can return these for a while.
