@@ -608,7 +608,8 @@ func (wbq *writebackQueue) setAside(r *request, relPath, absPath string, reason 
 // tooLarge matches a 413 status as the RPC client reports a response that is
 // not 200 OK ("<status>: <body>"), at the start of the error's text or of one
 // of its parts, under each of the status's names (RFC 2616, 7231, 9110).
-var tooLarge = regexp.MustCompile(`(?:^|: )413 (?:Request Entity Too Large|Payload Too Large|Content Too Large)\b`)
+// Parts are joined by ": ", or, for a nested Upspin error, by ":\n\t".
+var tooLarge = regexp.MustCompile(`(?:^|:\s+)413 (?:Request Entity Too Large|Payload Too Large|Content Too Large)\b`)
 
 // isPermanent reports whether a Put that failed with err would fail the same
 // way however often it is retried: the store found the block invalid, or the
